@@ -53,6 +53,7 @@ export default function WatchPage() {
 
   const [selectedSubtitleTrackLabel, setSelectedSubtitleTrackLabel] = useState<string | null>(null)
 
+  // Dummy subtitles as the API does not provide them
   const dummySubtitles: Movie["subtitles"] = [
     { label: "English", language: "en", src: "/path/to/english.vtt", default: true },
     { label: "Spanish", language: "es", src: "/path/to/spanish.vtt" },
@@ -68,10 +69,9 @@ export default function WatchPage() {
         const response = await fetch(`https://web-production-6321.up.railway.app/movies/${movieId}`)
         if (!response.ok) throw new Error("Movie not found")
         const movieData: Movie = await response.json()
-        setMovie({ ...movieData, subtitles: dummySubtitles })
-        // Reverting to placeholder video for testing
-        setVideoSrc("https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4")
-        setCurrentQuality("720p") // This will be ignored for the placeholder but kept for consistency
+        setMovie({ ...movieData, subtitles: dummySubtitles }) // Attach dummy subtitles
+        setVideoSrc(movieData.video_link_720p) // Set 720p as default
+        setCurrentQuality("720p")
       } catch (err) {
         setError("Failed to fetch movie details. The movie might not exist or there's a network issue.")
         console.error("Fetch movie error:", err)
@@ -95,29 +95,23 @@ export default function WatchPage() {
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange)
   }, [])
 
-  // Update video source when quality changes (only relevant if using actual movie links)
+  // Update video source when quality changes
   useEffect(() => {
     if (movie) {
       const prevTime = videoRef.current?.currentTime || 0
       const prevPlaying = !videoRef.current?.paused
 
-      // For testing, we are overriding videoSrc, so this block is less critical
-      // but kept for when actual movie links are re-enabled.
       let newSrc = ""
       if (currentQuality === "480p") newSrc = movie.video_link_480p
       else if (currentQuality === "720p") newSrc = movie.video_link_720p
       else if (currentQuality === "1080p") newSrc = movie.video_link_1080p
 
-      // Only update videoSrc if it's different from the current one
-      // and not using the placeholder for testing.
-      // For now, the placeholder will always be used.
-      // setVideoSrc(newSrc);
-
-      if (videoRef.current) {
+      if (videoRef.current && newSrc && newSrc !== videoRef.current.src) {
+        videoRef.current.src = newSrc
         videoRef.current.load()
         videoRef.current.currentTime = prevTime
         if (prevPlaying) {
-          videoRef.current.play().catch((e) => console.error("Autoplay prevented:", e))
+          videoRef.current.play().catch((e) => console.error("Autoplay prevented after quality change:", e))
         }
       }
     }
@@ -141,8 +135,8 @@ export default function WatchPage() {
         )
 
         const defaultAudioTrack =
-          tracks.find((track) => track.language === "en" || track.label.toLowerCase().includes("english")) ||
           tracks.find((track) => track.enabled) ||
+          tracks.find((track) => track.language === "en" || track.label.toLowerCase().includes("english")) ||
           tracks[0]
 
         if (defaultAudioTrack) {
@@ -231,8 +225,8 @@ export default function WatchPage() {
   }, [isMuted])
 
   const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newVolume = Number(e.target.value)
     if (videoRef.current) {
+      const newVolume = Number(e.target.value)
       videoRef.current.volume = newVolume
       setVolume(newVolume)
       setIsMuted(newVolume === 0)
@@ -397,7 +391,7 @@ export default function WatchPage() {
             </div>
           ) : (
             <video
-              key={videoSrc}
+              key={videoSrc} // Key ensures re-render when src changes
               ref={videoRef}
               src={videoSrc}
               autoPlay
@@ -419,13 +413,14 @@ export default function WatchPage() {
               onSeeking={handleSeeking}
               onSeeked={handleSeeked}
               className="w-full h-full object-contain"
-              playsInline
-              crossOrigin="anonymous"
+              playsInline // Important for iOS autoplay
+              crossOrigin="anonymous" // Crucial for CORS with external video hosts
             >
+              {/* Render subtitle tracks */}
               {movie.subtitles?.map((sub) => (
                 <track
                   key={sub.label}
-                  kind={sub.kind || "subtitles"}
+                  kind="subtitles"
                   label={sub.label}
                   srcLang={sub.language}
                   src={sub.src}
