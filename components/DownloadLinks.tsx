@@ -1,14 +1,14 @@
 "use client"
 
-import { Download, Play } from "lucide-react"
-import Link from "next/link"
+import { Download, Play } from "lucide-react" // Import Play icon
+import Link from "next/link" // Import Link from next/link
 
 interface DownloadLinksProps {
   video_link_480p: string
   video_link_720p: string
   video_link_1080p: string
   title: string
-  movieId: number
+  movieId: number // Add movieId prop
 }
 
 export default function DownloadLinks({
@@ -16,7 +16,7 @@ export default function DownloadLinks({
   video_link_720p,
   video_link_1080p,
   title,
-  movieId,
+  movieId, // Destructure movieId
 }: DownloadLinksProps) {
   const downloadLinks = [
     { quality: "480p", url: video_link_480p, size: "~300MB" },
@@ -64,7 +64,7 @@ export default function DownloadLinks({
       {/* Watch Online Button */}
       <div className="mt-6">
         <Link
-          href={`/watch/${movieId}`}
+          href={`/watch/${movieId}`} // Link to the new watch route
           className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2"
         >
           <Play className="h-5 w-5" />
