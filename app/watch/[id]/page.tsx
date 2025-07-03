@@ -18,6 +18,7 @@ import {
   Subtitles,
   Headphones,
   Download,
+  Cast,
 } from "lucide-react"
 import type { Movie as BaseMovie } from "@/contexts/MovieContext"
 
@@ -441,7 +442,9 @@ export default function WatchPage() {
           {/* Custom Controls Overlay */}
           {videoSrc && (
             <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/70 to-transparent opacity-0 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-300">
-              <div className="p-4">
+              <div className="p-4 bg-black/80">
+                {" "}
+                {/* Black bottom bar */}
                 {/* Progress Bar */}
                 <input
                   type="range"
@@ -456,7 +459,6 @@ export default function WatchPage() {
                   <span>{formatTime(currentTime)}</span>
                   <span>{formatTime(duration)}</span>
                 </div>
-
                 {/* Main Controls */}
                 <div className="flex items-center justify-between mt-4">
                   <div className="flex items-center space-x-2 sm:space-x-4">
@@ -488,9 +490,31 @@ export default function WatchPage() {
                       className="w-20 sm:w-24 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
                       aria-label="Volume control"
                     />
+                    {/* Movie Title in Controls */}
+                    <span className="hidden sm:block text-sm font-medium text-gray-300 ml-4 line-clamp-1">
+                      {movie.title.split("(")[0].trim()}
+                    </span>
                   </div>
 
                   <div className="flex items-center space-x-2 sm:space-x-4 relative">
+                    {/* Download Icon (Placeholder) */}
+                    <button
+                      onClick={() => alert("Download functionality coming soon!")}
+                      className="p-2 rounded-full hover:bg-gray-700 transition-colors"
+                      aria-label="Download"
+                    >
+                      <Download className="h-6 w-6 text-white" />
+                    </button>
+
+                    {/* Cast Icon (Placeholder) */}
+                    <button
+                      onClick={() => alert("Cast functionality coming soon!")}
+                      className="p-2 rounded-full hover:bg-gray-700 transition-colors"
+                      aria-label="Cast"
+                    >
+                      <Cast className="h-6 w-6 text-white" />
+                    </button>
+
                     {/* Settings Menu Trigger */}
                     <button
                       onClick={() => setShowSettingsMenu(!showSettingsMenu)}
@@ -503,7 +527,9 @@ export default function WatchPage() {
 
                     {/* Settings Menu Dropdown */}
                     {showSettingsMenu && (
-                      <div className="absolute bottom-full right-0 mb-2 w-40 bg-gray-800 rounded-lg shadow-lg p-2 text-sm z-20">
+                      <div className="absolute bottom-full right-0 mb-2 w-48 bg-gray-800 rounded-lg shadow-lg p-2 text-sm z-20 border border-purple-600">
+                        {" "}
+                        {/* Purple border */}
                         {/* Quality Options */}
                         <div className="font-semibold text-gray-300 px-2 py-1 flex items-center space-x-2">
                           <Download className="h-4 w-4" />
@@ -517,30 +543,28 @@ export default function WatchPage() {
                               setShowSettingsMenu(false)
                             }}
                             className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
-                              currentQuality === quality ? "bg-blue-600 text-white" : "text-gray-300"
+                              currentQuality === quality ? "bg-purple-600 text-white" : "text-gray-300"
                             }`}
                           >
                             {quality}
                           </button>
                         ))}
-
                         {/* Playback Speed Options */}
                         <div className="font-semibold text-gray-300 px-2 py-1 mt-2 border-t border-gray-700 pt-2 flex items-center space-x-2">
                           <Play className="h-4 w-4" />
-                          <span>Speed</span>
+                          <span>Playback Speed</span>
                         </div>
                         {playbackSpeeds.map((speed) => (
                           <button
                             key={speed}
                             onClick={() => handlePlaybackSpeedChange(speed)}
                             className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
-                              playbackSpeed === speed ? "bg-blue-600 text-white" : "text-gray-300"
+                              playbackSpeed === speed ? "bg-purple-600 text-white" : "text-gray-300"
                             }`}
                           >
                             {speed === 1 ? "Normal" : `${speed}x`}
                           </button>
                         ))}
-
                         {/* Audio Tracks Options */}
                         {availableAudioTracks.length > 0 && (
                           <>
@@ -553,7 +577,7 @@ export default function WatchPage() {
                                 key={track.id}
                                 onClick={() => handleAudioTrackChange(track.id)}
                                 className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
-                                  selectedAudioTrackId === track.id ? "bg-blue-600 text-white" : "text-gray-300"
+                                  selectedAudioTrackId === track.id ? "bg-purple-600 text-white" : "text-gray-300"
                                 }`}
                               >
                                 {track.label} ({track.language.toUpperCase()})
@@ -561,7 +585,6 @@ export default function WatchPage() {
                             ))}
                           </>
                         )}
-
                         {/* Subtitle Options */}
                         {movie.subtitles && movie.subtitles.length > 0 && (
                           <>
@@ -572,7 +595,7 @@ export default function WatchPage() {
                             <button
                               onClick={() => handleSubtitleTrackChange(null)}
                               className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
-                                selectedSubtitleTrackLabel === null ? "bg-blue-600 text-white" : "text-gray-300"
+                                selectedSubtitleTrackLabel === null ? "bg-purple-600 text-white" : "text-gray-300"
                               }`}
                             >
                               Off
@@ -582,7 +605,9 @@ export default function WatchPage() {
                                 key={sub.label}
                                 onClick={() => handleSubtitleTrackChange(sub.label)}
                                 className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
-                                  selectedSubtitleTrackLabel === sub.label ? "bg-blue-600 text-white" : "text-gray-300"
+                                  selectedSubtitleTrackLabel === sub.label
+                                    ? "bg-purple-600 text-white"
+                                    : "text-gray-300"
                                 }`}
                               >
                                 {sub.label}
