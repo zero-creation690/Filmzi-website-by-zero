@@ -70,7 +70,7 @@ export default function WatchPage() {
         const movieData: Movie = await response.json()
         setMovie({ ...movieData, subtitles: dummySubtitles })
         // Use a known good placeholder video for testing
-        setVideoSrc("https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4")
+        setVideoSrc(movieData.video_link_720p)
         setCurrentQuality("720p") // This will be ignored for the placeholder but kept for consistency
       } catch (err) {
         setError("Failed to fetch movie details. The movie might not exist or there's a network issue.")
