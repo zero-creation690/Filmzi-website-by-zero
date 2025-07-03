@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+
 import { useEffect, useState, useRef, useCallback } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
@@ -14,7 +15,6 @@ import {
   Minimize,
   Settings,
   PictureInPicture2,
-  Loader2,
   Download,
   Cast,
   AlertCircle,
@@ -26,7 +26,6 @@ export default function WatchPage() {
   const params = useParams()
   const id = params.id as string
   const [movie, setMovie] = useState<Movie | null>(null)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -41,7 +40,6 @@ export default function WatchPage() {
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [isFullScreen, setIsFullScreen] = useState(false)
-  const [isBuffering, setIsBuffering] = useState(false)
   const [showControls, setShowControls] = useState(true)
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
   const [showSettings, setShowSettings] = useState(false)
@@ -83,31 +81,16 @@ export default function WatchPage() {
     }
   }, [])
 
-  // Fetch movie data - FAST loading
+  // Fetch movie data - NO LOADING ANIMATION
   useEffect(() => {
     const fetchMovie = async () => {
       if (!id) return
 
-      setLoading(true)
-      setError(null)
-
       try {
-        // Fast fetch with short timeout
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
-
-        const response = await fetch(`https://web-production-6321.up.railway.app/movies/${id}`, {
-          signal: controller.signal,
-          headers: {
-            Accept: "application/json",
-            "Cache-Control": "no-cache",
-          },
-        })
-
-        clearTimeout(timeoutId)
+        const response = await fetch(`https://web-production-6321.up.railway.app/movies/${id}`)
 
         if (!response.ok) {
-          throw new Error(`Movie not found (${response.status})`)
+          throw new Error(`Movie not found`)
         }
 
         const movieData: Movie = await response.json()
@@ -147,13 +130,7 @@ export default function WatchPage() {
         }
       } catch (err: any) {
         console.error("Fetch error:", err)
-        if (err.name === "AbortError") {
-          setError("Loading timeout. Please check your connection and try again.")
-        } else {
-          setError(`Failed to load movie: ${err.message}`)
-        }
-      } finally {
-        setLoading(false)
+        setError(`Failed to load movie: ${err.message}`)
       }
     }
 
@@ -208,11 +185,8 @@ export default function WatchPage() {
   const handleLoadedMetadata = () => {
     if (videoRef.current) {
       setDuration(videoRef.current.duration)
-      setIsBuffering(false)
     }
   }
-  const handleWaiting = () => setIsBuffering(true)
-  const handleCanPlay = () => setIsBuffering(false)
 
   // Control functions
   const togglePlayPause = () => {
@@ -273,22 +247,18 @@ export default function WatchPage() {
     const currentTimeBackup = videoRef.current.currentTime
     const wasPlaying = !videoRef.current.paused
 
-    setIsBuffering(true)
     setCurrentQuality(quality)
     setVideoSrc(qualityOption.url)
 
     // Restore state after load
-    const restoreState = () => {
+    setTimeout(() => {
       if (videoRef.current) {
         videoRef.current.currentTime = currentTimeBackup
         if (wasPlaying) {
           videoRef.current.play().catch(console.error)
         }
       }
-      setIsBuffering(false)
-    }
-
-    setTimeout(restoreState, 100)
+    }, 100)
   }
 
   const changeSpeed = (speed: number) => {
@@ -313,24 +283,10 @@ export default function WatchPage() {
 
   const retry = () => {
     setError(null)
-    setLoading(true)
     window.location.reload()
   }
 
-  // Loading state
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="text-center text-white">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-500" />
-          <p className="text-lg">Loading movie...</p>
-          <p className="text-sm text-gray-400 mt-2">This should only take a few seconds</p>
-        </div>
-      </div>
-    )
-  }
-
-  // Error state
+  // Error state - NO LOADING ANIMATION
   if (error || !movie || !videoSrc) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center p-4">
@@ -374,7 +330,7 @@ export default function WatchPage() {
       {/* Video Player */}
       <div ref={containerRef} className={`relative ${isFullScreen ? "h-screen" : "max-w-6xl mx-auto"} bg-black`}>
         <div className="relative w-full aspect-video bg-black">
-          {/* Video Element */}
+          {/* Video Element - NO LOADING ANIMATION */}
           <video
             ref={videoRef}
             src={videoSrc}
@@ -383,21 +339,12 @@ export default function WatchPage() {
             onPause={handlePause}
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
-            onWaiting={handleWaiting}
-            onCanPlay={handleCanPlay}
             onError={() => setError("Video playback error. Please try a different quality.")}
             playsInline
             crossOrigin="anonymous"
             preload="metadata"
             autoPlay
           />
-
-          {/* Loading Overlay */}
-          {isBuffering && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-            </div>
-          )}
 
           {/* Controls Overlay */}
           <div
