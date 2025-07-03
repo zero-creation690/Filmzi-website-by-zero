@@ -21,9 +21,6 @@ import {
 } from "lucide-react"
 import type { Movie as BaseMovie } from "@/contexts/MovieContext"
 
-// Extend the Movie type for demonstration purposes to include subtitle data.
-// For actual dual audio in a single file, the video element's audioTracks API is used.
-// In a real application, this data would come from your API.
 interface Movie extends BaseMovie {
   subtitles?: { label: string; language: string; src: string; default?: boolean }[]
 }
@@ -32,7 +29,7 @@ export default function WatchPage() {
   const params = useParams()
   const id = params.id as string
   const [movie, setMovie] = useState<Movie | null>(null)
-  const [loading, setLoading] = useState(true) // For initial movie data fetch
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -41,22 +38,21 @@ export default function WatchPage() {
 
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
-  const [volume, setVolume] = useState(1) // 0 to 1
+  const [volume, setVolume] = useState(1)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [isFullScreen, setIsFullScreen] = useState(false)
-  const [isBuffering, setIsBuffering] = useState(true) // For video buffering state
-  const [showSettingsMenu, setShowSettingsMenu] = useState(false) // For quality/speed/audio/subtitle menu
-  const [playbackSpeed, setPlaybackSpeed] = useState(1) // For playback speed control
+  const [isBuffering, setIsBuffering] = useState(true)
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false)
+  const [playbackSpeed, setPlaybackSpeed] = useState(1)
 
   const [availableAudioTracks, setAvailableAudioTracks] = useState<{ id: string; label: string; language: string }[]>(
     [],
   )
   const [selectedAudioTrackId, setSelectedAudioTrackId] = useState<string | null>(null)
 
-  const [selectedSubtitleTrackLabel, setSelectedSubtitleTrackLabel] = useState<string | null>(null) // 'Off' or subtitle label
+  const [selectedSubtitleTrackLabel, setSelectedSubtitleTrackLabel] = useState<string | null>(null)
 
-  // Dummy data for demonstration. In a real app, this would come from your API.
   const dummySubtitles: Movie["subtitles"] = [
     { label: "English", language: "en", src: "/path/to/english.vtt", default: true },
     { label: "Spanish", language: "es", src: "/path/to/spanish.vtt" },
@@ -67,14 +63,15 @@ export default function WatchPage() {
   useEffect(() => {
     const fetchMovie = async (movieId: string) => {
       setLoading(true)
-      setError(null) // Clear previous errors
+      setError(null)
       try {
         const response = await fetch(`https://web-production-6321.up.railway.app/movies/${movieId}`)
         if (!response.ok) throw new Error("Movie not found")
         const movieData: Movie = await response.json()
         setMovie({ ...movieData, subtitles: dummySubtitles })
-        setVideoSrc(movieData.video_link_720p)
-        setCurrentQuality("720p")
+        // Use a known good placeholder video for testing
+        setVideoSrc("https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4")
+        setCurrentQuality("720p") // This will be ignored for the placeholder but kept for consistency
       } catch (err) {
         setError("Failed to fetch movie details. The movie might not exist or there's a network issue.")
         console.error("Fetch movie error:", err)
@@ -98,20 +95,24 @@ export default function WatchPage() {
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange)
   }, [])
 
-  // Update video source when quality changes
+  // Update video source when quality changes (only relevant if using actual movie links)
   useEffect(() => {
     if (movie) {
       const prevTime = videoRef.current?.currentTime || 0
       const prevPlaying = !videoRef.current?.paused
 
+      // For testing, we are overriding videoSrc, so this block is less critical
+      // but kept for when actual movie links are re-enabled.
       let newSrc = ""
       if (currentQuality === "480p") newSrc = movie.video_link_480p
       else if (currentQuality === "720p") newSrc = movie.video_link_720p
       else if (currentQuality === "1080p") newSrc = movie.video_link_1080p
 
-      setVideoSrc(newSrc)
+      // Only update videoSrc if it's different from the current one
+      // and not using the placeholder for testing.
+      // For now, the placeholder will always be used.
+      // setVideoSrc(newSrc);
 
-      // Load new source and maintain playback state/time
       if (videoRef.current) {
         videoRef.current.load()
         videoRef.current.currentTime = prevTime
@@ -129,7 +130,7 @@ export default function WatchPage() {
 
     const handleTracks = () => {
       // Audio Tracks
-      if (videoElement.audioTracks) {
+      if (videoElement.audioTracks && typeof videoElement.audioTracks.addEventListener === "function") {
         const tracks = Array.from(videoElement.audioTracks)
         setAvailableAudioTracks(
           tracks.map((track) => ({
@@ -155,7 +156,11 @@ export default function WatchPage() {
       }
 
       // Subtitle Tracks (HTMLMediaElement.textTracks)
-      if (movie?.subtitles && videoElement.textTracks) {
+      if (
+        movie?.subtitles &&
+        videoElement.textTracks &&
+        typeof videoElement.textTracks.addEventListener === "function"
+      ) {
         const defaultSubtitle = movie.subtitles.find((sub) => sub.default)
         if (defaultSubtitle) {
           setSelectedSubtitleTrackLabel(defaultSubtitle.label)
@@ -181,8 +186,6 @@ export default function WatchPage() {
 
     videoElement.addEventListener("loadedmetadata", handleTracks)
 
-    // Conditionally add listeners to audioTracks and textTracks only if they exist
-    // and if addEventListener is a function on them (for robustness against non-standard environments)
     if (videoElement.audioTracks && typeof videoElement.audioTracks.addEventListener === "function") {
       videoElement.audioTracks.addEventListener("addtrack", handleTracks)
       videoElement.audioTracks.addEventListener("removetrack", handleTracks)
@@ -203,9 +206,8 @@ export default function WatchPage() {
         videoElement.textTracks.removeEventListener("removetrack", handleTracks)
       }
     }
-  }, [movie]) // movie is a dependency because movie.subtitles is used inside handleTracks
+  }, [movie])
 
-  // Video player controls
   const togglePlayPause = useCallback(() => {
     if (videoRef.current) {
       if (videoRef.current.paused) {
@@ -255,7 +257,7 @@ export default function WatchPage() {
         .catch((e) => {
           console.error("Autoplay prevented on metadata load:", e)
           setError("Autoplay prevented. Please click the play button to start the video.")
-          setIsPlaying(false) // Ensure playing state is false if autoplay fails
+          setIsPlaying(false)
         })
     }
   }, [])
@@ -297,13 +299,11 @@ export default function WatchPage() {
     }
   }, [])
 
-  // Handle video buffering events
   const handleWaiting = useCallback(() => setIsBuffering(true), [])
   const handlePlaying = useCallback(() => setIsBuffering(false), [])
   const handleSeeking = useCallback(() => setIsBuffering(true), [])
   const handleSeeked = useCallback(() => setIsBuffering(false), [])
 
-  // Handle audio track selection
   const handleAudioTrackChange = useCallback((trackId: string) => {
     if (videoRef.current) {
       const audioTracks = videoRef.current.audioTracks
@@ -315,7 +315,6 @@ export default function WatchPage() {
     }
   }, [])
 
-  // Handle subtitle track selection
   const handleSubtitleTrackChange = useCallback((label: string | null) => {
     if (videoRef.current) {
       const textTracks = videoRef.current.textTracks
@@ -331,7 +330,6 @@ export default function WatchPage() {
     setShowSettingsMenu(false)
   }, [])
 
-  // Format time for display
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60)
     const seconds = Math.floor(time % 60)
@@ -399,7 +397,7 @@ export default function WatchPage() {
             </div>
           ) : (
             <video
-              key={videoSrc} // Add key to force re-render on source change
+              key={videoSrc}
               ref={videoRef}
               src={videoSrc}
               autoPlay
