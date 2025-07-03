@@ -191,14 +191,15 @@ export default function WatchPage() {
   // Video player controls
   const togglePlayPause = useCallback(() => {
     if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause()
-      } else {
+      if (videoRef.current.paused) {
+        // Check actual video state
         videoRef.current.play().catch((e) => console.error("Play prevented:", e))
+      } else {
+        videoRef.current.pause()
       }
-      setIsPlaying(!isPlaying)
+      // Removed setIsPlaying(!isPlaying) from here, as it's now handled by onPlay/onPause events
     }
-  }, [isPlaying])
+  }, []) // No dependency on isPlaying needed anymore
 
   const toggleMute = useCallback(() => {
     if (videoRef.current) {
@@ -366,9 +367,9 @@ export default function WatchPage() {
           <video
             ref={videoRef}
             src={videoSrc || undefined}
-            autoPlay // Autoplay as requested
-            onPlay={handlePlaying}
-            onPause={togglePlayPause} // Use togglePlayPause to update state
+            autoPlay
+            onPlay={() => setIsPlaying(true)} // Directly set isPlaying to true
+            onPause={() => setIsPlaying(false)} // Directly set isPlaying to false
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
             onEnded={() => setIsPlaying(false)}
@@ -377,9 +378,9 @@ export default function WatchPage() {
             onPlaying={handlePlaying}
             onSeeking={handleSeeking}
             onSeeked={handleSeeked}
-            className="w-full h-full object-contain" // Use object-contain to prevent cropping
-            playsInline // Add playsInline for better mobile compatibility (especially iOS)
-            crossOrigin="anonymous" // Required for text tracks from different origins
+            className="w-full h-full object-contain"
+            playsInline
+            crossOrigin="anonymous"
           >
             {movie.subtitles?.map((sub) => (
               <track
