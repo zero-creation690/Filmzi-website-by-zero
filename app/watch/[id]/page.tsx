@@ -5,234 +5,380 @@ import type React from "react"
 import { useEffect, useState, useRef, useCallback } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Play, Pause, Volume2, VolumeX, Maximize, Minimize } from "lucide-react"
+import {
+  ArrowLeft,
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Maximize,
+  Minimize,
+  Settings,
+  PictureInPicture2,
+  Download,
+  Cast,
+  AlertCircle,
+  RefreshCw,
+} from "lucide-react"
 import type { Movie } from "@/contexts/MovieContext"
 
 export default function WatchPage() {
   const params = useParams()
   const id = params.id as string
   const [movie, setMovie] = useState<Movie | null>(null)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Video states
   const [currentQuality, setCurrentQuality] = useState<"480p" | "720p" | "1080p">("720p")
   const [videoSrc, setVideoSrc] = useState<string | null>(null)
-
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
-  const [volume, setVolume] = useState(1) // 0 to 1
+  const [volume, setVolume] = useState(1)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [isFullScreen, setIsFullScreen] = useState(false)
+  const [showControls, setShowControls] = useState(true)
+  const [playbackSpeed, setPlaybackSpeed] = useState(1)
+  const [showSettings, setShowSettings] = useState(false)
 
-  // Fetch movie data
-  useEffect(() => {
-    const fetchMovie = async (movieId: string) => {
-      setLoading(true)
-      try {
-        const response = await fetch(`https://web-production-6321.up.railway.app/movies/${movieId}`)
-        if (!response.ok) throw new Error("Movie not found")
-        const movieData: Movie = await response.json()
-        setMovie(movieData)
-        // Set initial video source to 720p
-        setVideoSrc(movieData.video_link_720p)
-        setCurrentQuality("720p")
-      } catch (err) {
-        setError("Failed to fetch movie details.")
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
-    }
+  // Available qualities
+  const [availableQualities, setAvailableQualities] = useState<
+    Array<{ quality: "480p" | "720p" | "1080p"; url: string; label: string }>
+  >([])
 
-    if (id) {
-      fetchMovie(id)
-    }
-  }, [id])
+  // Process video URL for better compatibility
+  const processVideoUrl = useCallback((url: string): string => {
+    if (!url) return ""
 
-  // Update video source when quality changes
-  useEffect(() => {
-    if (movie) {
-      const prevTime = videoRef.current?.currentTime || 0
-      const prevPlaying = !videoRef.current?.paused
-
-      let newSrc = ""
-      if (currentQuality === "480p") newSrc = movie.video_link_480p
-      else if (currentQuality === "720p") newSrc = movie.video_link_720p
-      else if (currentQuality === "1080p") newSrc = movie.video_link_1080p
-
-      setVideoSrc(newSrc)
-
-      // Load new source and maintain playback state/time
-      if (videoRef.current) {
-        videoRef.current.load()
-        videoRef.current.currentTime = prevTime
-        if (prevPlaying) {
-          videoRef.current.play().catch((e) => console.error("Autoplay prevented:", e))
+    try {
+      // Handle PixelDrain URLs
+      if (url.includes("pixeldrain.com")) {
+        const fileId = url.match(/\/u\/([a-zA-Z0-9]+)/)?.[1]
+        if (fileId) {
+          return `https://pixeldrain.com/api/file/${fileId}?download`
         }
       }
-    }
-  }, [currentQuality, movie])
 
-  // Video player controls
-  const togglePlayPause = useCallback(() => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause()
-      } else {
-        videoRef.current.play().catch((e) => console.error("Play prevented:", e))
+      // Handle Google Drive URLs
+      if (url.includes("drive.google.com")) {
+        const fileId = url.match(/\/d\/([a-zA-Z0-9-_]+)/)?.[1]
+        if (fileId) {
+          return `https://drive.google.com/uc?export=download&id=${fileId}`
+        }
       }
-      setIsPlaying(!isPlaying)
+
+      // Handle Archive.org URLs
+      if (url.includes("archive.org")) {
+        return url.replace("/details/", "/download/")
+      }
+
+      return url
+    } catch (e) {
+      return url
+    }
+  }, [])
+
+  // Fetch movie data - NO LOADING ANIMATION
+  useEffect(() => {
+    const fetchMovie = async () => {
+      if (!id) return
+
+      try {
+        const response = await fetch(`https://web-production-6321.up.railway.app/movies/${id}`)
+
+        if (!response.ok) {
+          throw new Error(`Movie not found`)
+        }
+
+        const movieData: Movie = await response.json()
+        setMovie(movieData)
+
+        // Process and set available qualities
+        const qualities = []
+        if (movieData.video_link_480p) {
+          qualities.push({
+            quality: "480p" as const,
+            url: processVideoUrl(movieData.video_link_480p),
+            label: "480P",
+          })
+        }
+        if (movieData.video_link_720p) {
+          qualities.push({
+            quality: "720p" as const,
+            url: processVideoUrl(movieData.video_link_720p),
+            label: "720P",
+          })
+        }
+        if (movieData.video_link_1080p) {
+          qualities.push({
+            quality: "1080p" as const,
+            url: processVideoUrl(movieData.video_link_1080p),
+            label: "1080P",
+          })
+        }
+
+        setAvailableQualities(qualities)
+
+        // Set default quality (prefer 720p, fallback to available)
+        const defaultQuality = qualities.find((q) => q.quality === "720p") || qualities[0]
+        if (defaultQuality) {
+          setCurrentQuality(defaultQuality.quality)
+          setVideoSrc(defaultQuality.url)
+        }
+      } catch (err: any) {
+        console.error("Fetch error:", err)
+        setError(`Failed to load movie: ${err.message}`)
+      }
+    }
+
+    fetchMovie()
+  }, [id, processVideoUrl])
+
+  // Handle fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullScreen(!!document.fullscreenElement)
+    }
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange)
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange)
+  }, [])
+
+  // Auto-hide controls
+  useEffect(() => {
+    let timeout: NodeJS.Timeout
+
+    const resetTimeout = () => {
+      clearTimeout(timeout)
+      setShowControls(true)
+      if (isPlaying) {
+        timeout = setTimeout(() => setShowControls(false), 3000)
+      }
+    }
+
+    const container = containerRef.current
+    if (container) {
+      container.addEventListener("mousemove", resetTimeout)
+      container.addEventListener("click", resetTimeout)
+    }
+
+    return () => {
+      clearTimeout(timeout)
+      if (container) {
+        container.removeEventListener("mousemove", resetTimeout)
+        container.removeEventListener("click", resetTimeout)
+      }
     }
   }, [isPlaying])
 
-  const toggleMute = useCallback(() => {
-    if (videoRef.current) {
-      videoRef.current.muted = !isMuted
-      setIsMuted(!isMuted)
-    }
-  }, [isMuted])
-
-  const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newVolume = Number(e.target.value)
-    if (videoRef.current) {
-      videoRef.current.volume = newVolume
-      setVolume(newVolume)
-      setIsMuted(newVolume === 0)
-    }
-  }, [])
-
-  const handleTimeUpdate = useCallback(() => {
+  // Video event handlers
+  const handlePlay = () => setIsPlaying(true)
+  const handlePause = () => setIsPlaying(false)
+  const handleTimeUpdate = () => {
     if (videoRef.current) {
       setCurrentTime(videoRef.current.currentTime)
     }
-  }, [])
-
-  const handleLoadedMetadata = useCallback(() => {
+  }
+  const handleLoadedMetadata = () => {
     if (videoRef.current) {
       setDuration(videoRef.current.duration)
-      // Autoplay on load, but handle browser restrictions
-      videoRef.current.play().catch((e) => console.error("Autoplay prevented on metadata load:", e))
-      setIsPlaying(true)
     }
-  }, [])
+  }
 
-  const handleProgressChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = Number(e.target.value)
-      setCurrentTime(Number(e.target.value))
+  // Control functions
+  const togglePlayPause = () => {
+    if (!videoRef.current) return
+
+    if (videoRef.current.paused) {
+      videoRef.current.play().catch(console.error)
+    } else {
+      videoRef.current.pause()
     }
-  }, [])
+  }
 
-  const toggleFullScreen = useCallback(() => {
-    if (videoRef.current) {
-      if (!document.fullscreenElement) {
-        videoRef.current.requestFullscreen().catch((e) => console.error("Fullscreen failed:", e))
-        setIsFullScreen(true)
-      } else {
-        document.exitFullscreen()
-        setIsFullScreen(false)
+  const toggleMute = () => {
+    if (!videoRef.current) return
+    videoRef.current.muted = !isMuted
+    setIsMuted(!isMuted)
+  }
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!videoRef.current) return
+    const newVolume = Number.parseFloat(e.target.value)
+    videoRef.current.volume = newVolume
+    setVolume(newVolume)
+    setIsMuted(newVolume === 0)
+  }
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!videoRef.current) return
+    const newTime = Number.parseFloat(e.target.value)
+    videoRef.current.currentTime = newTime
+    setCurrentTime(newTime)
+  }
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return
+
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch(console.error)
+    } else {
+      document.exitFullscreen().catch(console.error)
+    }
+  }
+
+  const togglePiP = () => {
+    if (!videoRef.current || !document.pictureInPictureEnabled) return
+
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(console.error)
+    } else {
+      videoRef.current.requestPictureInPicture().catch(console.error)
+    }
+  }
+
+  const changeQuality = (quality: "480p" | "720p" | "1080p") => {
+    const qualityOption = availableQualities.find((q) => q.quality === quality)
+    if (!qualityOption || !videoRef.current) return
+
+    const currentTimeBackup = videoRef.current.currentTime
+    const wasPlaying = !videoRef.current.paused
+
+    setCurrentQuality(quality)
+    setVideoSrc(qualityOption.url)
+
+    // Restore state after load
+    setTimeout(() => {
+      if (videoRef.current) {
+        videoRef.current.currentTime = currentTimeBackup
+        if (wasPlaying) {
+          videoRef.current.play().catch(console.error)
+        }
       }
+    }, 100)
+  }
+
+  const changeSpeed = (speed: number) => {
+    if (!videoRef.current) return
+    videoRef.current.playbackRate = speed
+    setPlaybackSpeed(speed)
+    setShowSettings(false)
+  }
+
+  const formatTime = (seconds: number) => {
+    if (!isFinite(seconds)) return "0:00"
+
+    const hours = Math.floor(seconds / 3600)
+    const mins = Math.floor((seconds % 3600) / 60)
+    const secs = Math.floor(seconds % 60)
+
+    if (hours > 0) {
+      return `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
     }
-  }, [])
-
-  // Format time for display
-  const formatTime = (time: number) => {
-    const minutes = Math.floor(time / 60)
-    const seconds = Math.floor(time % 60)
-    return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
+    return `${mins}:${secs.toString().padStart(2, "0")}`
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-black text-white">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    )
+  const retry = () => {
+    setError(null)
+    window.location.reload()
   }
 
-  if (error || !movie) {
+  // Error state - NO LOADING ANIMATION
+  if (error || !movie || !videoSrc) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-black text-white p-4">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">Error</h1>
-          <p className="text-gray-400 mb-4">{error || "Movie details could not be loaded."}</p>
-          <Link
-            href="/home"
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
-          >
-            Go Home
-          </Link>
+      <div className="min-h-screen bg-black flex items-center justify-center p-4">
+        <div className="text-center text-white max-w-md">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold mb-2">Unable to Load Video</h2>
+          <p className="text-gray-300 mb-6">{error || "No video source available"}</p>
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={retry}
+              className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg flex items-center gap-2 transition-colors"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Retry
+            </button>
+            <Link href="/home" className="bg-gray-600 hover:bg-gray-700 px-6 py-2 rounded-lg transition-colors">
+              Go Home
+            </Link>
+          </div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col items-center p-4 sm:p-6 lg:p-8">
-      {/* Back Button */}
-      <div className="w-full max-w-6xl mb-6">
-        <Link
-          href={`/movie/${movie.id}`}
-          className="inline-flex items-center space-x-2 text-blue-400 hover:text-blue-300 transition-colors"
-        >
-          <ArrowLeft className="h-5 w-5" />
-          <span>Back to Movie Details</span>
-        </Link>
-      </div>
+    <div className="min-h-screen bg-black text-white">
+      {/* Header - hidden in fullscreen */}
+      {!isFullScreen && (
+        <div className="p-4">
+          <Link
+            href={`/movie/${movie.id}`}
+            className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 transition-colors"
+          >
+            <ArrowLeft className="h-5 w-5" />
+            Back to Movie
+          </Link>
+          <h1 className="text-2xl md:text-3xl font-bold mt-4 text-center">{movie.title.split("(")[0].trim()}</h1>
+        </div>
+      )}
 
-      {/* Movie Title */}
-      <h1 className="text-3xl md:text-4xl font-bold text-center mb-8 max-w-6xl w-full">
-        {movie.title.split("(")[0].trim()}
-      </h1>
-
-      {/* Video Player Container */}
-      <div className="w-full max-w-4xl bg-gray-900 rounded-lg shadow-lg overflow-hidden">
+      {/* Video Player */}
+      <div ref={containerRef} className={`relative ${isFullScreen ? "h-screen" : "max-w-6xl mx-auto"} bg-black`}>
         <div className="relative w-full aspect-video bg-black">
+          {/* Video Element - NO LOADING ANIMATION */}
           <video
             ref={videoRef}
-            src={videoSrc || undefined}
-            autoPlay // Autoplay as requested
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
+            src={videoSrc}
+            className="w-full h-full object-contain"
+            onPlay={handlePlay}
+            onPause={handlePause}
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
-            onEnded={() => setIsPlaying(false)}
-            onError={(e) => console.error("Video error:", e.currentTarget.error)}
-            className="w-full h-full object-contain" // Use object-contain to prevent cropping
+            onError={() => setError("Video playback error. Please try a different quality.")}
+            playsInline
+            crossOrigin="anonymous"
+            preload="metadata"
+            autoPlay
           />
 
-          {/* Custom Controls Overlay */}
-          <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/70 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-300">
-            <div className="p-4">
+          {/* Controls Overlay */}
+          <div
+            className={`absolute inset-0 flex flex-col justify-end transition-opacity duration-300 ${
+              showControls ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            {/* Gradient Background */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
+
+            {/* Controls */}
+            <div className="relative p-4 bg-black/90">
               {/* Progress Bar */}
               <input
                 type="range"
                 min="0"
-                max={duration}
+                max={duration || 0}
                 value={currentTime}
-                onChange={handleProgressChange}
-                className="w-full h-2 bg-blue-600 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md"
+                onChange={handleSeek}
+                className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer mb-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500"
               />
-              <div className="flex justify-between items-center mt-2 text-sm text-gray-300">
-                <span>{formatTime(currentTime)}</span>
-                <span>{formatTime(duration)}</span>
-              </div>
 
               {/* Main Controls */}
-              <div className="flex items-center justify-between mt-4">
-                <div className="flex items-center space-x-4">
-                  <button onClick={togglePlayPause} className="p-2 rounded-full hover:bg-gray-700">
-                    {isPlaying ? <Pause className="h-6 w-6 text-white" /> : <Play className="h-6 w-6 text-white" />}
+              <div className="flex items-center justify-between">
+                {/* Left Controls */}
+                <div className="flex items-center gap-3">
+                  <button onClick={togglePlayPause} className="p-2 rounded-full hover:bg-white/20 transition-colors">
+                    {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
                   </button>
-                  <button onClick={toggleMute} className="p-2 rounded-full hover:bg-gray-700">
-                    {isMuted || volume === 0 ? (
-                      <VolumeX className="h-6 w-6 text-white" />
-                    ) : (
-                      <Volume2 className="h-6 w-6 text-white" />
-                    )}
+
+                  <button onClick={toggleMute} className="p-2 rounded-full hover:bg-white/20 transition-colors">
+                    {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
                   </button>
+
                   <input
                     type="range"
                     min="0"
@@ -240,58 +386,111 @@ export default function WatchPage() {
                     step="0.01"
                     value={volume}
                     onChange={handleVolumeChange}
-                    className="w-24 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+                    className="w-20 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
                   />
+
+                  <span className="hidden sm:block text-sm font-medium ml-4 max-w-xs truncate">
+                    {movie.title.split("(")[0].trim()}
+                  </span>
                 </div>
 
-                <div className="flex items-center space-x-4">
-                  {/* Quality Buttons */}
-                  <div className="flex space-x-2">
-                    {movie.video_link_480p && (
-                      <button
-                        onClick={() => setCurrentQuality("480p")}
-                        className={`px-3 py-1 rounded-md text-sm font-medium ${
-                          currentQuality === "480p"
-                            ? "bg-blue-600 text-white"
-                            : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                        }`}
-                      >
-                        480p
-                      </button>
-                    )}
-                    {movie.video_link_720p && (
-                      <button
-                        onClick={() => setCurrentQuality("720p")}
-                        className={`px-3 py-1 rounded-md text-sm font-medium ${
-                          currentQuality === "720p"
-                            ? "bg-blue-600 text-white"
-                            : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                        }`}
-                      >
-                        720p
-                      </button>
-                    )}
-                    {movie.video_link_1080p && (
-                      <button
-                        onClick={() => setCurrentQuality("1080p")}
-                        className={`px-3 py-1 rounded-md text-sm font-medium ${
-                          currentQuality === "1080p"
-                            ? "bg-blue-600 text-white"
-                            : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                        }`}
-                      >
-                        1080p
-                      </button>
+                {/* Center - Time */}
+                <div className="hidden sm:flex items-center gap-2 text-sm">
+                  <span>{formatTime(currentTime)}</span>
+                  <span>/</span>
+                  <span>{formatTime(duration)}</span>
+                </div>
+
+                {/* Right Controls */}
+                <div className="flex items-center gap-2">
+                  {/* Quality Selector */}
+                  <select
+                    value={currentQuality}
+                    onChange={(e) => changeQuality(e.target.value as "480p" | "720p" | "1080p")}
+                    className="bg-white/20 text-white text-sm px-2 py-1 rounded border-none outline-none cursor-pointer hover:bg-white/30 transition-colors"
+                  >
+                    {availableQualities.map((q) => (
+                      <option key={q.quality} value={q.quality} className="bg-black">
+                        {q.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Download */}
+                  <button
+                    onClick={() => window.open(videoSrc, "_blank")}
+                    className="p-2 rounded-full hover:bg-white/20 transition-colors"
+                    title="Download"
+                  >
+                    <Download className="h-5 w-5" />
+                  </button>
+
+                  {/* Cast */}
+                  <button
+                    onClick={() => alert("Cast feature coming soon!")}
+                    className="p-2 rounded-full hover:bg-white/20 transition-colors"
+                    title="Cast"
+                  >
+                    <Cast className="h-5 w-5" />
+                  </button>
+
+                  {/* Settings */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowSettings(!showSettings)}
+                      className="p-2 rounded-full hover:bg-white/20 transition-colors"
+                      title="Settings"
+                    >
+                      <Settings className="h-5 w-5" />
+                    </button>
+
+                    {showSettings && (
+                      <div className="absolute bottom-full right-0 mb-2 w-48 bg-gray-900 rounded-lg shadow-xl border border-purple-500 p-3">
+                        <div className="space-y-2">
+                          <div className="text-sm font-medium text-gray-300 mb-2">Playback Speed</div>
+                          {[0.5, 0.75, 1, 1.25, 1.5, 2].map((speed) => (
+                            <button
+                              key={speed}
+                              onClick={() => changeSpeed(speed)}
+                              className={`w-full text-left px-2 py-1 rounded text-sm transition-colors ${
+                                playbackSpeed === speed ? "bg-purple-600 text-white" : "text-gray-300 hover:bg-gray-700"
+                              }`}
+                            >
+                              {speed === 1 ? "Normal" : `${speed}x`}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
-                  <button onClick={toggleFullScreen} className="p-2 rounded-full hover:bg-gray-700">
-                    {isFullScreen ? (
-                      <Minimize className="h-6 w-6 text-white" />
-                    ) : (
-                      <Maximize className="h-6 w-6 text-white" />
-                    )}
+
+                  {/* Picture-in-Picture */}
+                  {document.pictureInPictureEnabled && (
+                    <button
+                      onClick={togglePiP}
+                      className="p-2 rounded-full hover:bg-white/20 transition-colors"
+                      title="Picture-in-Picture"
+                    >
+                      <PictureInPicture2 className="h-5 w-5" />
+                    </button>
+                  )}
+
+                  {/* Fullscreen */}
+                  <button
+                    onClick={toggleFullscreen}
+                    className="p-2 rounded-full hover:bg-white/20 transition-colors"
+                    title="Fullscreen"
+                  >
+                    {isFullScreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
                   </button>
                 </div>
+              </div>
+
+              {/* Mobile Time Display */}
+              <div className="sm:hidden flex justify-center mt-2 text-sm">
+                <span>
+                  {formatTime(currentTime)} / {formatTime(duration)}
+                </span>
               </div>
             </div>
           </div>
