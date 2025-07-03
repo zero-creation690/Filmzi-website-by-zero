@@ -1,18 +1,28 @@
 "use client"
 
 import type React from "react"
-
 import { useEffect, useState, useRef, useCallback } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Play, Pause, Volume2, VolumeX, Maximize, Minimize } from "lucide-react"
+import {
+  ArrowLeft,
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Maximize,
+  Minimize,
+  Settings,
+  PictureInPicture2,
+  Loader2,
+} from "lucide-react"
 import type { Movie } from "@/contexts/MovieContext"
 
 export default function WatchPage() {
   const params = useParams()
   const id = params.id as string
   const [movie, setMovie] = useState<Movie | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(true) // For initial movie data fetch
   const [error, setError] = useState<string | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -25,6 +35,9 @@ export default function WatchPage() {
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [isFullScreen, setIsFullScreen] = useState(false)
+  const [isBuffering, setIsBuffering] = useState(true) // For video buffering state
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false) // For quality/speed menu
+  const [playbackSpeed, setPlaybackSpeed] = useState(1) // For playback speed control
 
   // Fetch movie data
   useEffect(() => {
@@ -50,6 +63,16 @@ export default function WatchPage() {
       fetchMovie(id)
     }
   }, [id])
+
+  // Handle fullscreen change events (e.g., user pressing ESC)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullScreen(document.fullscreenElement != null)
+    }
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange)
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange)
+  }, [])
 
   // Update video source when quality changes
   useEffect(() => {
@@ -112,6 +135,7 @@ export default function WatchPage() {
   const handleLoadedMetadata = useCallback(() => {
     if (videoRef.current) {
       setDuration(videoRef.current.duration)
+      setIsBuffering(false) // Video metadata loaded, stop initial buffering indicator
       // Autoplay on load, but handle browser restrictions
       videoRef.current.play().catch((e) => console.error("Autoplay prevented on metadata load:", e))
       setIsPlaying(true)
@@ -137,12 +161,43 @@ export default function WatchPage() {
     }
   }, [])
 
+  const handlePlaybackSpeedChange = useCallback((speed: number) => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = speed
+      setPlaybackSpeed(speed)
+      setShowSettingsMenu(false)
+    }
+  }, [])
+
+  const togglePictureInPicture = useCallback(() => {
+    if (videoRef.current) {
+      if (document.pictureInPictureElement) {
+        document.exitPictureInPicture().catch((e) => console.error("Exit PiP failed:", e))
+      } else {
+        videoRef.current.requestPictureInPicture().catch((e) => console.error("Enter PiP failed:", e))
+      }
+    }
+  }, [])
+
+  // Handle video buffering events
+  const handleWaiting = useCallback(() => setIsBuffering(true), [])
+  const handlePlaying = useCallback(() => setIsBuffering(false), [])
+  const handleSeeking = useCallback(() => setIsBuffering(true), [])
+  const handleSeeked = useCallback(() => setIsBuffering(false), [])
+
   // Format time for display
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60)
     const seconds = Math.floor(time % 60)
     return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
   }
+
+  const playbackSpeeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
+  const availableQualities = [
+    movie?.video_link_480p && "480p",
+    movie?.video_link_720p && "720p",
+    movie?.video_link_1080p && "1080p",
+  ].filter(Boolean) as ("480p" | "720p" | "1080p")[]
 
   if (loading) {
     return (
@@ -194,17 +249,30 @@ export default function WatchPage() {
             ref={videoRef}
             src={videoSrc || undefined}
             autoPlay // Autoplay as requested
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
+            onPlay={handlePlaying}
+            onPause={togglePlayPause} // Use togglePlayPause to update state
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
             onEnded={() => setIsPlaying(false)}
             onError={(e) => console.error("Video error:", e.currentTarget.error)}
+            onWaiting={handleWaiting}
+            onPlaying={handlePlaying}
+            onSeeking={handleSeeking}
+            onSeeked={handleSeeked}
             className="w-full h-full object-contain" // Use object-contain to prevent cropping
+            playsInline // Add playsInline for better mobile compatibility (especially iOS)
+            // Removed 'controls' attribute to rely fully on custom controls for Plyr-like experience
           />
 
+          {/* Loading Spinner Overlay */}
+          {isBuffering && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-10">
+              <Loader2 className="h-12 w-12 animate-spin text-blue-500" />
+            </div>
+          )}
+
           {/* Custom Controls Overlay */}
-          <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/70 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-300">
+          <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/70 to-transparent opacity-0 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-300">
             <div className="p-4">
               {/* Progress Bar */}
               <input
@@ -214,6 +282,7 @@ export default function WatchPage() {
                 value={currentTime}
                 onChange={handleProgressChange}
                 className="w-full h-2 bg-blue-600 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md"
+                aria-label="Video progress"
               />
               <div className="flex justify-between items-center mt-2 text-sm text-gray-300">
                 <span>{formatTime(currentTime)}</span>
@@ -223,10 +292,18 @@ export default function WatchPage() {
               {/* Main Controls */}
               <div className="flex items-center justify-between mt-4">
                 <div className="flex items-center space-x-4">
-                  <button onClick={togglePlayPause} className="p-2 rounded-full hover:bg-gray-700">
+                  <button
+                    onClick={togglePlayPause}
+                    className="p-2 rounded-full hover:bg-gray-700 transition-colors"
+                    aria-label={isPlaying ? "Pause" : "Play"}
+                  >
                     {isPlaying ? <Pause className="h-6 w-6 text-white" /> : <Play className="h-6 w-6 text-white" />}
                   </button>
-                  <button onClick={toggleMute} className="p-2 rounded-full hover:bg-gray-700">
+                  <button
+                    onClick={toggleMute}
+                    className="p-2 rounded-full hover:bg-gray-700 transition-colors"
+                    aria-label={isMuted || volume === 0 ? "Unmute" : "Mute"}
+                  >
                     {isMuted || volume === 0 ? (
                       <VolumeX className="h-6 w-6 text-white" />
                     ) : (
@@ -241,50 +318,73 @@ export default function WatchPage() {
                     value={volume}
                     onChange={handleVolumeChange}
                     className="w-24 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+                    aria-label="Volume control"
                   />
                 </div>
 
-                <div className="flex items-center space-x-4">
-                  {/* Quality Buttons */}
-                  <div className="flex space-x-2">
-                    {movie.video_link_480p && (
-                      <button
-                        onClick={() => setCurrentQuality("480p")}
-                        className={`px-3 py-1 rounded-md text-sm font-medium ${
-                          currentQuality === "480p"
-                            ? "bg-blue-600 text-white"
-                            : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                        }`}
-                      >
-                        480p
-                      </button>
-                    )}
-                    {movie.video_link_720p && (
-                      <button
-                        onClick={() => setCurrentQuality("720p")}
-                        className={`px-3 py-1 rounded-md text-sm font-medium ${
-                          currentQuality === "720p"
-                            ? "bg-blue-600 text-white"
-                            : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                        }`}
-                      >
-                        720p
-                      </button>
-                    )}
-                    {movie.video_link_1080p && (
-                      <button
-                        onClick={() => setCurrentQuality("1080p")}
-                        className={`px-3 py-1 rounded-md text-sm font-medium ${
-                          currentQuality === "1080p"
-                            ? "bg-blue-600 text-white"
-                            : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                        }`}
-                      >
-                        1080p
-                      </button>
-                    )}
-                  </div>
-                  <button onClick={toggleFullScreen} className="p-2 rounded-full hover:bg-gray-700">
+                <div className="flex items-center space-x-4 relative">
+                  {/* Settings Menu Trigger */}
+                  <button
+                    onClick={() => setShowSettingsMenu(!showSettingsMenu)}
+                    className="p-2 rounded-full hover:bg-gray-700 transition-colors"
+                    aria-label="Settings"
+                    aria-expanded={showSettingsMenu}
+                  >
+                    <Settings className="h-6 w-6 text-white" />
+                  </button>
+
+                  {/* Settings Menu Dropdown */}
+                  {showSettingsMenu && (
+                    <div className="absolute bottom-full right-0 mb-2 w-40 bg-gray-800 rounded-lg shadow-lg p-2 text-sm z-20">
+                      <div className="font-semibold text-gray-300 px-2 py-1">Quality</div>
+                      {availableQualities.map((quality) => (
+                        <button
+                          key={quality}
+                          onClick={() => {
+                            setCurrentQuality(quality)
+                            setShowSettingsMenu(false)
+                          }}
+                          className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
+                            currentQuality === quality ? "bg-blue-600 text-white" : "text-gray-300"
+                          }`}
+                        >
+                          {quality}
+                        </button>
+                      ))}
+                      <div className="font-semibold text-gray-300 px-2 py-1 mt-2 border-t border-gray-700 pt-2">
+                        Playback Speed
+                      </div>
+                      {playbackSpeeds.map((speed) => (
+                        <button
+                          key={speed}
+                          onClick={() => handlePlaybackSpeedChange(speed)}
+                          className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
+                            playbackSpeed === speed ? "bg-blue-600 text-white" : "text-gray-300"
+                          }`}
+                        >
+                          {speed === 1 ? "Normal" : `${speed}x`}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Picture-in-Picture Button */}
+                  {document.pictureInPictureEnabled && (
+                    <button
+                      onClick={togglePictureInPicture}
+                      className="p-2 rounded-full hover:bg-gray-700 transition-colors"
+                      aria-label="Toggle Picture-in-Picture"
+                    >
+                      <PictureInPicture2 className="h-6 w-6 text-white" />
+                    </button>
+                  )}
+
+                  {/* Fullscreen Button */}
+                  <button
+                    onClick={toggleFullScreen}
+                    className="p-2 rounded-full hover:bg-gray-700 transition-colors"
+                    aria-label={isFullScreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+                  >
                     {isFullScreen ? (
                       <Minimize className="h-6 w-6 text-white" />
                     ) : (
