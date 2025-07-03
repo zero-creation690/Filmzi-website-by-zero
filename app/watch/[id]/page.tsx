@@ -129,33 +129,36 @@ export default function WatchPage() {
 
     const handleTracks = () => {
       // Audio Tracks
-      const tracks = Array.from(videoElement.audioTracks)
-      setAvailableAudioTracks(
-        tracks.map((track) => ({
-          id: track.id,
-          label: track.label || `Track ${track.id}`,
-          language: track.language || "unknown",
-        })),
-      )
+      if (videoElement.audioTracks) {
+        const tracks = Array.from(videoElement.audioTracks)
+        setAvailableAudioTracks(
+          tracks.map((track) => ({
+            id: track.id,
+            label: track.label || `Track ${track.id}`,
+            language: track.language || "unknown",
+          })),
+        )
 
-      const defaultAudioTrack =
-        tracks.find((track) => track.language === "en" || track.label.toLowerCase().includes("english")) ||
-        tracks.find((track) => track.enabled) ||
-        tracks[0]
+        const defaultAudioTrack =
+          tracks.find((track) => track.language === "en" || track.label.toLowerCase().includes("english")) ||
+          tracks.find((track) => track.enabled) ||
+          tracks[0]
 
-      if (defaultAudioTrack) {
-        // Disable all tracks first, then enable the chosen one
-        tracks.forEach((track) => (track.enabled = false))
-        defaultAudioTrack.enabled = true
-        setSelectedAudioTrackId(defaultAudioTrack.id)
+        if (defaultAudioTrack) {
+          tracks.forEach((track) => (track.enabled = false))
+          defaultAudioTrack.enabled = true
+          setSelectedAudioTrackId(defaultAudioTrack.id)
+        }
+      } else {
+        setAvailableAudioTracks([])
+        setSelectedAudioTrackId(null)
       }
 
       // Subtitle Tracks (HTMLMediaElement.textTracks)
-      if (movie?.subtitles) {
+      if (movie?.subtitles && videoElement.textTracks) {
         const defaultSubtitle = movie.subtitles.find((sub) => sub.default)
         if (defaultSubtitle) {
           setSelectedSubtitleTrackLabel(defaultSubtitle.label)
-          // Activate the corresponding HTML track element
           const textTracks = videoElement.textTracks
           for (let i = 0; i < textTracks.length; i++) {
             if (textTracks[i].label === defaultSubtitle.label) {
@@ -166,26 +169,41 @@ export default function WatchPage() {
           }
         } else {
           setSelectedSubtitleTrackLabel("Off")
-          // Hide all tracks if no default or 'Off' is selected
           const textTracks = videoElement.textTracks
           for (let i = 0; i < textTracks.length; i++) {
             textTracks[i].mode = "hidden"
           }
         }
+      } else {
+        setSelectedSubtitleTrackLabel("Off")
       }
     }
 
     videoElement.addEventListener("loadedmetadata", handleTracks)
-    // Also listen for changes in audio tracks (e.g., if source changes and new tracks are available)
-    videoElement.audioTracks.addEventListener("addtrack", handleTracks)
-    videoElement.audioTracks.addEventListener("removetrack", handleTracks)
+
+    // Conditionally add listeners to audioTracks and textTracks only if they exist
+    // and if addEventListener is a function on them (for robustness against non-standard environments)
+    if (videoElement.audioTracks && typeof videoElement.audioTracks.addEventListener === "function") {
+      videoElement.audioTracks.addEventListener("addtrack", handleTracks)
+      videoElement.audioTracks.addEventListener("removetrack", handleTracks)
+    }
+    if (videoElement.textTracks && typeof videoElement.textTracks.addEventListener === "function") {
+      videoElement.textTracks.addEventListener("addtrack", handleTracks)
+      videoElement.textTracks.addEventListener("removetrack", handleTracks)
+    }
 
     return () => {
       videoElement.removeEventListener("loadedmetadata", handleTracks)
-      videoElement.audioTracks.removeEventListener("addtrack", handleTracks)
-      videoElement.audioTracks.removeEventListener("removetrack", handleTracks)
+      if (videoElement.audioTracks && typeof videoElement.audioTracks.removeEventListener === "function") {
+        videoElement.audioTracks.removeEventListener("addtrack", handleTracks)
+        videoElement.audioTracks.removeEventListener("removetrack", handleTracks)
+      }
+      if (videoElement.textTracks && typeof videoElement.textTracks.removeEventListener === "function") {
+        videoElement.textTracks.removeEventListener("addtrack", handleTracks)
+        videoElement.textTracks.removeEventListener("removetrack", handleTracks)
+      }
     }
-  }, [movie])
+  }, [movie]) // movie is a dependency because movie.subtitles is used inside handleTracks
 
   // Video player controls
   const togglePlayPause = useCallback(() => {
@@ -201,7 +219,7 @@ export default function WatchPage() {
         videoRef.current.pause()
       }
     }
-  }, []) // Removed isPlaying from dependencies as it's no longer directly updated here
+  }, [])
 
   const toggleMute = useCallback(() => {
     if (videoRef.current) {
@@ -308,9 +326,9 @@ export default function WatchPage() {
           textTracks[i].mode = "hidden"
         }
       }
-      setSelectedSubtitleTrackLabel(label)
-      setShowSettingsMenu(false)
     }
+    setSelectedSubtitleTrackLabel(label)
+    setShowSettingsMenu(false)
   }, [])
 
   // Format time for display
