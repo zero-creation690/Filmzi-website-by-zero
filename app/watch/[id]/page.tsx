@@ -15,18 +15,8 @@ import {
   Settings,
   PictureInPicture2,
   Loader2,
-  Subtitles,
-  Headphones,
-  Download,
 } from "lucide-react"
-import type { Movie as BaseMovie } from "@/contexts/MovieContext"
-
-// Extend the Movie type for demonstration purposes to include subtitle data.
-// For actual dual audio in a single file, the video element's audioTracks API is used.
-// In a real application, this data would come from your API.
-interface Movie extends BaseMovie {
-  subtitles?: { label: string; language: string; src: string; default?: boolean }[]
-}
+import type { Movie } from "@/contexts/MovieContext"
 
 export default function WatchPage() {
   const params = useParams()
@@ -46,22 +36,8 @@ export default function WatchPage() {
   const [duration, setDuration] = useState(0)
   const [isFullScreen, setIsFullScreen] = useState(false)
   const [isBuffering, setIsBuffering] = useState(true) // For video buffering state
-  const [showSettingsMenu, setShowSettingsMenu] = useState(false) // For quality/speed/audio/subtitle menu
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false) // For quality/speed menu
   const [playbackSpeed, setPlaybackSpeed] = useState(1) // For playback speed control
-
-  const [availableAudioTracks, setAvailableAudioTracks] = useState<{ id: string; label: string; language: string }[]>(
-    [],
-  )
-  const [selectedAudioTrackId, setSelectedAudioTrackId] = useState<string | null>(null)
-
-  const [selectedSubtitleTrackLabel, setSelectedSubtitleTrackLabel] = useState<string | null>(null) // 'Off' or subtitle label
-
-  // Dummy data for demonstration. In a real app, this would come from your API.
-  const dummySubtitles: Movie["subtitles"] = [
-    { label: "English", language: "en", src: "/path/to/english.vtt", default: true },
-    { label: "Spanish", language: "es", src: "/path/to/spanish.vtt" },
-    { label: "French", language: "fr", src: "/path/to/french.vtt" },
-  ]
 
   // Fetch movie data
   useEffect(() => {
@@ -71,8 +47,7 @@ export default function WatchPage() {
         const response = await fetch(`https://web-production-6321.up.railway.app/movies/${movieId}`)
         if (!response.ok) throw new Error("Movie not found")
         const movieData: Movie = await response.json()
-        // Add dummy subtitles for demonstration
-        setMovie({ ...movieData, subtitles: dummySubtitles })
+        setMovie(movieData)
         // Set initial video source to 720p
         setVideoSrc(movieData.video_link_720p)
         setCurrentQuality("720p")
@@ -122,71 +97,6 @@ export default function WatchPage() {
       }
     }
   }, [currentQuality, movie])
-
-  // Handle audio tracks and subtitles on video load/metadata
-  useEffect(() => {
-    const videoElement = videoRef.current
-    if (!videoElement) return
-
-    const handleTracks = () => {
-      // Audio Tracks
-      const tracks = Array.from(videoElement.audioTracks)
-      setAvailableAudioTracks(
-        tracks.map((track) => ({
-          id: track.id,
-          label: track.label || `Track ${track.id}`,
-          language: track.language || "unknown",
-        })),
-      )
-
-      const defaultAudioTrack =
-        tracks.find((track) => track.language === "en" || track.label.toLowerCase().includes("english")) ||
-        tracks.find((track) => track.enabled) ||
-        tracks[0]
-
-      if (defaultAudioTrack) {
-        // Disable all tracks first, then enable the chosen one
-        tracks.forEach((track) => (track.enabled = false))
-        defaultAudioTrack.enabled = true
-        setSelectedAudioTrackId(defaultAudioTrack.id)
-      }
-
-      // Subtitle Tracks (HTMLMediaElement.textTracks)
-      if (movie?.subtitles) {
-        const defaultSubtitle = movie.subtitles.find((sub) => sub.default)
-        if (defaultSubtitle) {
-          setSelectedSubtitleTrackLabel(defaultSubtitle.label)
-          // Activate the corresponding HTML track element
-          const textTracks = videoElement.textTracks
-          for (let i = 0; i < textTracks.length; i++) {
-            if (textTracks[i].label === defaultSubtitle.label) {
-              textTracks[i].mode = "showing"
-            } else {
-              textTracks[i].mode = "hidden"
-            }
-          }
-        } else {
-          setSelectedSubtitleTrackLabel("Off")
-          // Hide all tracks if no default or 'Off' is selected
-          const textTracks = videoElement.textTracks
-          for (let i = 0; i < textTracks.length; i++) {
-            textTracks[i].mode = "hidden"
-          }
-        }
-      }
-    }
-
-    videoElement.addEventListener("loadedmetadata", handleTracks)
-    // Also listen for changes in audio tracks (e.g., if source changes and new tracks are available)
-    videoElement.audioTracks.addEventListener("addtrack", handleTracks)
-    videoElement.audioTracks.addEventListener("removetrack", handleTracks)
-
-    return () => {
-      videoElement.removeEventListener("loadedmetadata", handleTracks)
-      videoElement.audioTracks.removeEventListener("addtrack", handleTracks)
-      videoElement.audioTracks.removeEventListener("removetrack", handleTracks)
-    }
-  }, [movie])
 
   // Video player controls
   const togglePlayPause = useCallback(() => {
@@ -275,34 +185,6 @@ export default function WatchPage() {
   const handleSeeking = useCallback(() => setIsBuffering(true), [])
   const handleSeeked = useCallback(() => setIsBuffering(false), [])
 
-  // Handle audio track selection
-  const handleAudioTrackChange = useCallback((trackId: string) => {
-    if (videoRef.current) {
-      const audioTracks = videoRef.current.audioTracks
-      for (let i = 0; i < audioTracks.length; i++) {
-        audioTracks[i].enabled = audioTracks[i].id === trackId
-      }
-      setSelectedAudioTrackId(trackId)
-      setShowSettingsMenu(false)
-    }
-  }, [])
-
-  // Handle subtitle track selection
-  const handleSubtitleTrackChange = useCallback((label: string | null) => {
-    if (videoRef.current) {
-      const textTracks = videoRef.current.textTracks
-      for (let i = 0; i < textTracks.length; i++) {
-        if (textTracks[i].label === label) {
-          textTracks[i].mode = "showing"
-        } else {
-          textTracks[i].mode = "hidden"
-        }
-      }
-      setSelectedSubtitleTrackLabel(label)
-      setShowSettingsMenu(false)
-    }
-  }, [])
-
   // Format time for display
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60)
@@ -379,25 +261,13 @@ export default function WatchPage() {
             onSeeked={handleSeeked}
             className="w-full h-full object-contain" // Use object-contain to prevent cropping
             playsInline // Add playsInline for better mobile compatibility (especially iOS)
-            crossOrigin="anonymous" // Required for text tracks from different origins
-          >
-            {movie.subtitles?.map((sub) => (
-              <track
-                key={sub.label}
-                kind={sub.kind || "subtitles"}
-                label={sub.label}
-                srcLang={sub.language}
-                src={sub.src}
-                default={sub.default}
-              />
-            ))}
-            {"Your browser does not support the video tag."}
-          </video>
+            // Removed 'controls' attribute to rely fully on custom controls for Plyr-like experience
+          />
 
           {/* Loading Spinner Overlay */}
           {isBuffering && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-10">
-              <Loader2 className="h-12 w-12 animate-spin text-blue-500" aria-label="Loading video" />
+              <Loader2 className="h-12 w-12 animate-spin text-blue-500" />
             </div>
           )}
 
@@ -421,7 +291,7 @@ export default function WatchPage() {
 
               {/* Main Controls */}
               <div className="flex items-center justify-between mt-4">
-                <div className="flex items-center space-x-2 sm:space-x-4">
+                <div className="flex items-center space-x-4">
                   <button
                     onClick={togglePlayPause}
                     className="p-2 rounded-full hover:bg-gray-700 transition-colors"
@@ -447,12 +317,12 @@ export default function WatchPage() {
                     step="0.01"
                     value={volume}
                     onChange={handleVolumeChange}
-                    className="w-20 sm:w-24 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+                    className="w-24 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
                     aria-label="Volume control"
                   />
                 </div>
 
-                <div className="flex items-center space-x-2 sm:space-x-4 relative">
+                <div className="flex items-center space-x-4 relative">
                   {/* Settings Menu Trigger */}
                   <button
                     onClick={() => setShowSettingsMenu(!showSettingsMenu)}
@@ -466,11 +336,7 @@ export default function WatchPage() {
                   {/* Settings Menu Dropdown */}
                   {showSettingsMenu && (
                     <div className="absolute bottom-full right-0 mb-2 w-40 bg-gray-800 rounded-lg shadow-lg p-2 text-sm z-20">
-                      {/* Quality Options */}
-                      <div className="font-semibold text-gray-300 px-2 py-1 flex items-center space-x-2">
-                        <Download className="h-4 w-4" />
-                        <span>Quality</span>
-                      </div>
+                      <div className="font-semibold text-gray-300 px-2 py-1">Quality</div>
                       {availableQualities.map((quality) => (
                         <button
                           key={quality}
@@ -485,11 +351,8 @@ export default function WatchPage() {
                           {quality}
                         </button>
                       ))}
-
-                      {/* Playback Speed Options */}
-                      <div className="font-semibold text-gray-300 px-2 py-1 mt-2 border-t border-gray-700 pt-2 flex items-center space-x-2">
-                        <Play className="h-4 w-4" />
-                        <span>Speed</span>
+                      <div className="font-semibold text-gray-300 px-2 py-1 mt-2 border-t border-gray-700 pt-2">
+                        Playback Speed
                       </div>
                       {playbackSpeeds.map((speed) => (
                         <button
@@ -502,56 +365,6 @@ export default function WatchPage() {
                           {speed === 1 ? "Normal" : `${speed}x`}
                         </button>
                       ))}
-
-                      {/* Audio Tracks Options */}
-                      {availableAudioTracks.length > 0 && (
-                        <>
-                          <div className="font-semibold text-gray-300 px-2 py-1 mt-2 border-t border-gray-700 pt-2 flex items-center space-x-2">
-                            <Headphones className="h-4 w-4" />
-                            <span>Audio</span>
-                          </div>
-                          {availableAudioTracks.map((track) => (
-                            <button
-                              key={track.id}
-                              onClick={() => handleAudioTrackChange(track.id)}
-                              className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
-                                selectedAudioTrackId === track.id ? "bg-blue-600 text-white" : "text-gray-300"
-                              }`}
-                            >
-                              {track.label} ({track.language.toUpperCase()})
-                            </button>
-                          ))}
-                        </>
-                      )}
-
-                      {/* Subtitle Options */}
-                      {movie.subtitles && movie.subtitles.length > 0 && (
-                        <>
-                          <div className="font-semibold text-gray-300 px-2 py-1 mt-2 border-t border-gray-700 pt-2 flex items-center space-x-2">
-                            <Subtitles className="h-4 w-4" />
-                            <span>Subtitles</span>
-                          </div>
-                          <button
-                            onClick={() => handleSubtitleTrackChange(null)}
-                            className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
-                              selectedSubtitleTrackLabel === null ? "bg-blue-600 text-white" : "text-gray-300"
-                            }`}
-                          >
-                            Off
-                          </button>
-                          {movie.subtitles.map((sub) => (
-                            <button
-                              key={sub.label}
-                              onClick={() => handleSubtitleTrackChange(sub.label)}
-                              className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
-                                selectedSubtitleTrackLabel === sub.label ? "bg-blue-600 text-white" : "text-gray-300"
-                              }`}
-                            >
-                              {sub.label}
-                            </button>
-                          ))}
-                        </>
-                      )}
                     </div>
                   )}
 
