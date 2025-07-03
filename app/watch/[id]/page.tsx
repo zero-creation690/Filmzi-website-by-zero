@@ -192,14 +192,12 @@ export default function WatchPage() {
   const togglePlayPause = useCallback(() => {
     if (videoRef.current) {
       if (videoRef.current.paused) {
-        // Check actual video state
         videoRef.current.play().catch((e) => console.error("Play prevented:", e))
       } else {
         videoRef.current.pause()
       }
-      // Removed setIsPlaying(!isPlaying) from here, as it's now handled by onPlay/onPause events
     }
-  }, []) // No dependency on isPlaying needed anymore
+  }, []) // Removed isPlaying from dependencies as it's no longer directly updated here
 
   const toggleMute = useCallback(() => {
     if (videoRef.current) {
@@ -228,8 +226,12 @@ export default function WatchPage() {
       setDuration(videoRef.current.duration)
       setIsBuffering(false) // Video metadata loaded, stop initial buffering indicator
       // Autoplay on load, but handle browser restrictions
-      videoRef.current.play().catch((e) => console.error("Autoplay prevented on metadata load:", e))
-      setIsPlaying(true)
+      videoRef.current
+        .play()
+        .then(() => {
+          setIsPlaying(true) // Set playing state after successful play attempt
+        })
+        .catch((e) => console.error("Autoplay prevented on metadata load:", e))
     }
   }, [])
 
@@ -373,7 +375,12 @@ export default function WatchPage() {
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
             onEnded={() => setIsPlaying(false)}
-            onError={(e) => console.error("Video error:", e.currentTarget.error)}
+            onError={(e) => {
+              console.error("Video error:", e.currentTarget.error)
+              setError("Video playback error. Please try again later.") // Set user-facing error
+              setIsPlaying(false) // Ensure playing state is false on error
+              setIsBuffering(false) // Stop buffering on error
+            }}
             onWaiting={handleWaiting}
             onPlaying={handlePlaying}
             onSeeking={handleSeeking}
