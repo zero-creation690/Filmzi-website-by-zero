@@ -67,18 +67,17 @@ export default function WatchPage() {
   useEffect(() => {
     const fetchMovie = async (movieId: string) => {
       setLoading(true)
+      setError(null) // Clear previous errors
       try {
         const response = await fetch(`https://web-production-6321.up.railway.app/movies/${movieId}`)
         if (!response.ok) throw new Error("Movie not found")
         const movieData: Movie = await response.json()
-        // Add dummy subtitles for demonstration
         setMovie({ ...movieData, subtitles: dummySubtitles })
-        // Set initial video source to 720p
         setVideoSrc(movieData.video_link_720p)
         setCurrentQuality("720p")
       } catch (err) {
-        setError("Failed to fetch movie details.")
-        console.error(err)
+        setError("Failed to fetch movie details. The movie might not exist or there's a network issue.")
+        console.error("Fetch movie error:", err)
       } finally {
         setLoading(false)
       }
@@ -192,7 +191,12 @@ export default function WatchPage() {
   const togglePlayPause = useCallback(() => {
     if (videoRef.current) {
       if (videoRef.current.paused) {
-        videoRef.current.play().catch((e) => console.error("Play prevented:", e))
+        videoRef.current.play().catch((e) => {
+          console.error("Play prevented:", e)
+          setError(
+            "Playback failed. Your browser might be blocking autoplay or the video link is invalid. Please try clicking play again.",
+          )
+        })
       } else {
         videoRef.current.pause()
       }
@@ -224,14 +228,17 @@ export default function WatchPage() {
   const handleLoadedMetadata = useCallback(() => {
     if (videoRef.current) {
       setDuration(videoRef.current.duration)
-      setIsBuffering(false) // Video metadata loaded, stop initial buffering indicator
-      // Autoplay on load, but handle browser restrictions
+      setIsBuffering(false)
       videoRef.current
         .play()
         .then(() => {
-          setIsPlaying(true) // Set playing state after successful play attempt
+          setIsPlaying(true)
         })
-        .catch((e) => console.error("Autoplay prevented on metadata load:", e))
+        .catch((e) => {
+          console.error("Autoplay prevented on metadata load:", e)
+          setError("Autoplay prevented. Please click the play button to start the video.")
+          setIsPlaying(false) // Ensure playing state is false if autoplay fails
+        })
     }
   }, [])
 
@@ -366,230 +373,243 @@ export default function WatchPage() {
       {/* Video Player Container */}
       <div className="w-full max-w-4xl bg-gray-900 rounded-lg shadow-lg overflow-hidden">
         <div className="relative w-full aspect-video bg-black">
-          <video
-            ref={videoRef}
-            src={videoSrc || undefined}
-            autoPlay
-            onPlay={() => setIsPlaying(true)} // Directly set isPlaying to true
-            onPause={() => setIsPlaying(false)} // Directly set isPlaying to false
-            onTimeUpdate={handleTimeUpdate}
-            onLoadedMetadata={handleLoadedMetadata}
-            onEnded={() => setIsPlaying(false)}
-            onError={(e) => {
-              console.error("Video error:", e.currentTarget.error)
-              setError("Video playback error. Please try again later.") // Set user-facing error
-              setIsPlaying(false) // Ensure playing state is false on error
-              setIsBuffering(false) // Stop buffering on error
-            }}
-            onWaiting={handleWaiting}
-            onPlaying={handlePlaying}
-            onSeeking={handleSeeking}
-            onSeeked={handleSeeked}
-            className="w-full h-full object-contain"
-            playsInline
-            crossOrigin="anonymous"
-          >
-            {movie.subtitles?.map((sub) => (
-              <track
-                key={sub.label}
-                kind={sub.kind || "subtitles"}
-                label={sub.label}
-                srcLang={sub.language}
-                src={sub.src}
-                default={sub.default}
-              />
-            ))}
-            {"Your browser does not support the video tag."}
-          </video>
+          {!videoSrc ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/90 text-white text-center p-4">
+              <p className="text-lg font-medium">
+                No video source available for this movie. Please check the movie details or try another movie.
+              </p>
+            </div>
+          ) : (
+            <video
+              key={videoSrc} // Add key to force re-render on source change
+              ref={videoRef}
+              src={videoSrc}
+              autoPlay
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
+              onTimeUpdate={handleTimeUpdate}
+              onLoadedMetadata={handleLoadedMetadata}
+              onEnded={() => setIsPlaying(false)}
+              onError={(e) => {
+                console.error("Video error:", e.currentTarget.error)
+                setError(
+                  "Video playback error. The video might be unavailable, in an unsupported format, or there's a network issue.",
+                )
+                setIsPlaying(false)
+                setIsBuffering(false)
+              }}
+              onWaiting={handleWaiting}
+              onPlaying={handlePlaying}
+              onSeeking={handleSeeking}
+              onSeeked={handleSeeked}
+              className="w-full h-full object-contain"
+              playsInline
+              crossOrigin="anonymous"
+            >
+              {movie.subtitles?.map((sub) => (
+                <track
+                  key={sub.label}
+                  kind={sub.kind || "subtitles"}
+                  label={sub.label}
+                  srcLang={sub.language}
+                  src={sub.src}
+                  default={sub.default}
+                />
+              ))}
+              {"Your browser does not support the video tag."}
+            </video>
+          )}
 
           {/* Loading Spinner Overlay */}
-          {isBuffering && (
+          {isBuffering && videoSrc && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-10">
               <Loader2 className="h-12 w-12 animate-spin text-blue-500" aria-label="Loading video" />
             </div>
           )}
 
           {/* Custom Controls Overlay */}
-          <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/70 to-transparent opacity-0 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-300">
-            <div className="p-4">
-              {/* Progress Bar */}
-              <input
-                type="range"
-                min="0"
-                max={duration}
-                value={currentTime}
-                onChange={handleProgressChange}
-                className="w-full h-2 bg-blue-600 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md"
-                aria-label="Video progress"
-              />
-              <div className="flex justify-between items-center mt-2 text-sm text-gray-300">
-                <span>{formatTime(currentTime)}</span>
-                <span>{formatTime(duration)}</span>
-              </div>
-
-              {/* Main Controls */}
-              <div className="flex items-center justify-between mt-4">
-                <div className="flex items-center space-x-2 sm:space-x-4">
-                  <button
-                    onClick={togglePlayPause}
-                    className="p-2 rounded-full hover:bg-gray-700 transition-colors"
-                    aria-label={isPlaying ? "Pause" : "Play"}
-                  >
-                    {isPlaying ? <Pause className="h-6 w-6 text-white" /> : <Play className="h-6 w-6 text-white" />}
-                  </button>
-                  <button
-                    onClick={toggleMute}
-                    className="p-2 rounded-full hover:bg-gray-700 transition-colors"
-                    aria-label={isMuted || volume === 0 ? "Unmute" : "Mute"}
-                  >
-                    {isMuted || volume === 0 ? (
-                      <VolumeX className="h-6 w-6 text-white" />
-                    ) : (
-                      <Volume2 className="h-6 w-6 text-white" />
-                    )}
-                  </button>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={volume}
-                    onChange={handleVolumeChange}
-                    className="w-20 sm:w-24 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
-                    aria-label="Volume control"
-                  />
+          {videoSrc && (
+            <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/70 to-transparent opacity-0 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-300">
+              <div className="p-4">
+                {/* Progress Bar */}
+                <input
+                  type="range"
+                  min="0"
+                  max={duration}
+                  value={currentTime}
+                  onChange={handleProgressChange}
+                  className="w-full h-2 bg-blue-600 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md"
+                  aria-label="Video progress"
+                />
+                <div className="flex justify-between items-center mt-2 text-sm text-gray-300">
+                  <span>{formatTime(currentTime)}</span>
+                  <span>{formatTime(duration)}</span>
                 </div>
 
-                <div className="flex items-center space-x-2 sm:space-x-4 relative">
-                  {/* Settings Menu Trigger */}
-                  <button
-                    onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-                    className="p-2 rounded-full hover:bg-gray-700 transition-colors"
-                    aria-label="Settings"
-                    aria-expanded={showSettingsMenu}
-                  >
-                    <Settings className="h-6 w-6 text-white" />
-                  </button>
-
-                  {/* Settings Menu Dropdown */}
-                  {showSettingsMenu && (
-                    <div className="absolute bottom-full right-0 mb-2 w-40 bg-gray-800 rounded-lg shadow-lg p-2 text-sm z-20">
-                      {/* Quality Options */}
-                      <div className="font-semibold text-gray-300 px-2 py-1 flex items-center space-x-2">
-                        <Download className="h-4 w-4" />
-                        <span>Quality</span>
-                      </div>
-                      {availableQualities.map((quality) => (
-                        <button
-                          key={quality}
-                          onClick={() => {
-                            setCurrentQuality(quality)
-                            setShowSettingsMenu(false)
-                          }}
-                          className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
-                            currentQuality === quality ? "bg-blue-600 text-white" : "text-gray-300"
-                          }`}
-                        >
-                          {quality}
-                        </button>
-                      ))}
-
-                      {/* Playback Speed Options */}
-                      <div className="font-semibold text-gray-300 px-2 py-1 mt-2 border-t border-gray-700 pt-2 flex items-center space-x-2">
-                        <Play className="h-4 w-4" />
-                        <span>Speed</span>
-                      </div>
-                      {playbackSpeeds.map((speed) => (
-                        <button
-                          key={speed}
-                          onClick={() => handlePlaybackSpeedChange(speed)}
-                          className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
-                            playbackSpeed === speed ? "bg-blue-600 text-white" : "text-gray-300"
-                          }`}
-                        >
-                          {speed === 1 ? "Normal" : `${speed}x`}
-                        </button>
-                      ))}
-
-                      {/* Audio Tracks Options */}
-                      {availableAudioTracks.length > 0 && (
-                        <>
-                          <div className="font-semibold text-gray-300 px-2 py-1 mt-2 border-t border-gray-700 pt-2 flex items-center space-x-2">
-                            <Headphones className="h-4 w-4" />
-                            <span>Audio</span>
-                          </div>
-                          {availableAudioTracks.map((track) => (
-                            <button
-                              key={track.id}
-                              onClick={() => handleAudioTrackChange(track.id)}
-                              className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
-                                selectedAudioTrackId === track.id ? "bg-blue-600 text-white" : "text-gray-300"
-                              }`}
-                            >
-                              {track.label} ({track.language.toUpperCase()})
-                            </button>
-                          ))}
-                        </>
+                {/* Main Controls */}
+                <div className="flex items-center justify-between mt-4">
+                  <div className="flex items-center space-x-2 sm:space-x-4">
+                    <button
+                      onClick={togglePlayPause}
+                      className="p-2 rounded-full hover:bg-gray-700 transition-colors"
+                      aria-label={isPlaying ? "Pause" : "Play"}
+                    >
+                      {isPlaying ? <Pause className="h-6 w-6 text-white" /> : <Play className="h-6 w-6 text-white" />}
+                    </button>
+                    <button
+                      onClick={toggleMute}
+                      className="p-2 rounded-full hover:bg-gray-700 transition-colors"
+                      aria-label={isMuted || volume === 0 ? "Unmute" : "Mute"}
+                    >
+                      {isMuted || volume === 0 ? (
+                        <VolumeX className="h-6 w-6 text-white" />
+                      ) : (
+                        <Volume2 className="h-6 w-6 text-white" />
                       )}
+                    </button>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value={volume}
+                      onChange={handleVolumeChange}
+                      className="w-20 sm:w-24 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+                      aria-label="Volume control"
+                    />
+                  </div>
 
-                      {/* Subtitle Options */}
-                      {movie.subtitles && movie.subtitles.length > 0 && (
-                        <>
-                          <div className="font-semibold text-gray-300 px-2 py-1 mt-2 border-t border-gray-700 pt-2 flex items-center space-x-2">
-                            <Subtitles className="h-4 w-4" />
-                            <span>Subtitles</span>
-                          </div>
+                  <div className="flex items-center space-x-2 sm:space-x-4 relative">
+                    {/* Settings Menu Trigger */}
+                    <button
+                      onClick={() => setShowSettingsMenu(!showSettingsMenu)}
+                      className="p-2 rounded-full hover:bg-gray-700 transition-colors"
+                      aria-label="Settings"
+                      aria-expanded={showSettingsMenu}
+                    >
+                      <Settings className="h-6 w-6 text-white" />
+                    </button>
+
+                    {/* Settings Menu Dropdown */}
+                    {showSettingsMenu && (
+                      <div className="absolute bottom-full right-0 mb-2 w-40 bg-gray-800 rounded-lg shadow-lg p-2 text-sm z-20">
+                        {/* Quality Options */}
+                        <div className="font-semibold text-gray-300 px-2 py-1 flex items-center space-x-2">
+                          <Download className="h-4 w-4" />
+                          <span>Quality</span>
+                        </div>
+                        {availableQualities.map((quality) => (
                           <button
-                            onClick={() => handleSubtitleTrackChange(null)}
+                            key={quality}
+                            onClick={() => {
+                              setCurrentQuality(quality)
+                              setShowSettingsMenu(false)
+                            }}
                             className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
-                              selectedSubtitleTrackLabel === null ? "bg-blue-600 text-white" : "text-gray-300"
+                              currentQuality === quality ? "bg-blue-600 text-white" : "text-gray-300"
                             }`}
                           >
-                            Off
+                            {quality}
                           </button>
-                          {movie.subtitles.map((sub) => (
+                        ))}
+
+                        {/* Playback Speed Options */}
+                        <div className="font-semibold text-gray-300 px-2 py-1 mt-2 border-t border-gray-700 pt-2 flex items-center space-x-2">
+                          <Play className="h-4 w-4" />
+                          <span>Speed</span>
+                        </div>
+                        {playbackSpeeds.map((speed) => (
+                          <button
+                            key={speed}
+                            onClick={() => handlePlaybackSpeedChange(speed)}
+                            className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
+                              playbackSpeed === speed ? "bg-blue-600 text-white" : "text-gray-300"
+                            }`}
+                          >
+                            {speed === 1 ? "Normal" : `${speed}x`}
+                          </button>
+                        ))}
+
+                        {/* Audio Tracks Options */}
+                        {availableAudioTracks.length > 0 && (
+                          <>
+                            <div className="font-semibold text-gray-300 px-2 py-1 mt-2 border-t border-gray-700 pt-2 flex items-center space-x-2">
+                              <Headphones className="h-4 w-4" />
+                              <span>Audio</span>
+                            </div>
+                            {availableAudioTracks.map((track) => (
+                              <button
+                                key={track.id}
+                                onClick={() => handleAudioTrackChange(track.id)}
+                                className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
+                                  selectedAudioTrackId === track.id ? "bg-blue-600 text-white" : "text-gray-300"
+                                }`}
+                              >
+                                {track.label} ({track.language.toUpperCase()})
+                              </button>
+                            ))}
+                          </>
+                        )}
+
+                        {/* Subtitle Options */}
+                        {movie.subtitles && movie.subtitles.length > 0 && (
+                          <>
+                            <div className="font-semibold text-gray-300 px-2 py-1 mt-2 border-t border-gray-700 pt-2 flex items-center space-x-2">
+                              <Subtitles className="h-4 w-4" />
+                              <span>Subtitles</span>
+                            </div>
                             <button
-                              key={sub.label}
-                              onClick={() => handleSubtitleTrackChange(sub.label)}
+                              onClick={() => handleSubtitleTrackChange(null)}
                               className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
-                                selectedSubtitleTrackLabel === sub.label ? "bg-blue-600 text-white" : "text-gray-300"
+                                selectedSubtitleTrackLabel === null ? "bg-blue-600 text-white" : "text-gray-300"
                               }`}
                             >
-                              {sub.label}
+                              Off
                             </button>
-                          ))}
-                        </>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Picture-in-Picture Button */}
-                  {document.pictureInPictureEnabled && (
-                    <button
-                      onClick={togglePictureInPicture}
-                      className="p-2 rounded-full hover:bg-gray-700 transition-colors"
-                      aria-label="Toggle Picture-in-Picture"
-                    >
-                      <PictureInPicture2 className="h-6 w-6 text-white" />
-                    </button>
-                  )}
-
-                  {/* Fullscreen Button */}
-                  <button
-                    onClick={toggleFullScreen}
-                    className="p-2 rounded-full hover:bg-gray-700 transition-colors"
-                    aria-label={isFullScreen ? "Exit Fullscreen" : "Enter Fullscreen"}
-                  >
-                    {isFullScreen ? (
-                      <Minimize className="h-6 w-6 text-white" />
-                    ) : (
-                      <Maximize className="h-6 w-6 text-white" />
+                            {movie.subtitles.map((sub) => (
+                              <button
+                                key={sub.label}
+                                onClick={() => handleSubtitleTrackChange(sub.label)}
+                                className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
+                                  selectedSubtitleTrackLabel === sub.label ? "bg-blue-600 text-white" : "text-gray-300"
+                                }`}
+                              >
+                                {sub.label}
+                              </button>
+                            ))}
+                          </>
+                        )}
+                      </div>
                     )}
-                  </button>
+
+                    {/* Picture-in-Picture Button */}
+                    {document.pictureInPictureEnabled && (
+                      <button
+                        onClick={togglePictureInPicture}
+                        className="p-2 rounded-full hover:bg-gray-700 transition-colors"
+                        aria-label="Toggle Picture-in-Picture"
+                      >
+                        <PictureInPicture2 className="h-6 w-6 text-white" />
+                      </button>
+                    )}
+
+                    {/* Fullscreen Button */}
+                    <button
+                      onClick={toggleFullScreen}
+                      className="p-2 rounded-full hover:bg-gray-700 transition-colors"
+                      aria-label={isFullScreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+                    >
+                      {isFullScreen ? (
+                        <Minimize className="h-6 w-6 text-white" />
+                      ) : (
+                        <Maximize className="h-6 w-6 text-white" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
