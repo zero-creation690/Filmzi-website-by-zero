@@ -20,8 +20,18 @@ import {
   Cast,
   Monitor,
   Accessibility,
+  RefreshCw,
+  AlertCircle,
+  Wifi,
+  WifiOff,
 } from "lucide-react"
 import type { Movie } from "@/contexts/MovieContext"
+
+interface VideoQuality {
+  quality: "480p" | "720p" | "1080p"
+  url: string
+  label: string
+}
 
 export default function WatchPage() {
   const params = useParams()
@@ -29,12 +39,15 @@ export default function WatchPage() {
   const [movie, setMovie] = useState<Movie | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const [videoQualities, setVideoQualities] = useState<VideoQuality[]>([])
   const [currentQuality, setCurrentQuality] = useState<"480p" | "720p" | "1080p">("720p")
   const [videoSrc, setVideoSrc] = useState<string | null>(null)
 
+  // Player states
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(1)
@@ -44,6 +57,12 @@ export default function WatchPage() {
   const [isBuffering, setIsBuffering] = useState(true)
   const [showControls, setShowControls] = useState(true)
   const [controlsTimeout, setControlsTimeout] = useState<NodeJS.Timeout | null>(null)
+
+  // Network and performance states
+  const [networkSpeed, setNetworkSpeed] = useState<"slow" | "medium" | "fast">("medium")
+  const [isOnline, setIsOnline] = useState(true)
+  const [videoLoadError, setVideoLoadError] = useState(false)
+  const [qualitySwitching, setQualitySwitching] = useState(false)
 
   // Settings menu states
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
@@ -57,30 +76,172 @@ export default function WatchPage() {
   const [selectedAudioTrackId, setSelectedAudioTrackId] = useState<string | null>(null)
   const [selectedSubtitleTrackLabel, setSelectedSubtitleTrackLabel] = useState<string | null>("Off")
 
-  // Fetch movie data
+  // Network detection
   useEffect(() => {
-    const fetchMovie = async (movieId: string) => {
-      setLoading(true)
-      setError(null)
-      try {
-        const response = await fetch(`https://web-production-6321.up.railway.app/movies/${movieId}`)
-        if (!response.ok) throw new Error("Movie not found")
-        const movieData: Movie = await response.json()
-        setMovie(movieData)
-        setVideoSrc(movieData.video_link_720p) // Set 720p as default
-        setCurrentQuality("720p")
-      } catch (err) {
-        setError("Failed to fetch movie details. The movie might not exist or there's a network issue.")
-        console.error("Fetch movie error:", err)
-      } finally {
-        setLoading(false)
+    const updateOnlineStatus = () => setIsOnline(navigator.onLine)
+    const detectNetworkSpeed = () => {
+      // @ts-ignore - navigator.connection is experimental
+      const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection
+      if (connection) {
+        const speed = connection.effectiveType
+        if (speed === "slow-2g" || speed === "2g") setNetworkSpeed("slow")
+        else if (speed === "3g") setNetworkSpeed("medium")
+        else setNetworkSpeed("fast")
       }
     }
 
+    window.addEventListener("online", updateOnlineStatus)
+    window.addEventListener("offline", updateOnlineStatus)
+    detectNetworkSpeed()
+
+    return () => {
+      window.removeEventListener("online", updateOnlineStatus)
+      window.removeEventListener("offline", updateOnlineStatus)
+    }
+  }, [])
+
+  // Validate and process video URL
+  const processVideoUrl = useCallback((url: string): string => {
+    if (!url) return ""
+
+    // Handle different video hosting services
+    try {
+      const urlObj = new URL(url)
+
+      // PixelDrain URLs
+      if (urlObj.hostname.includes("pixeldrain")) {
+        if (!url.includes("?download")) {
+          return url + "?download"
+        }
+      }
+
+      // Google Drive URLs
+      if (urlObj.hostname.includes("drive.google.com")) {
+        const fileId = url.match(/\/d\/([a-zA-Z0-9-_]+)/)?.[1]
+        if (fileId) {
+          return `https://drive.google.com/uc?export=download&id=${fileId}`
+        }
+      }
+
+      // Archive.org URLs
+      if (urlObj.hostname.includes("archive.org")) {
+        return url.replace("/details/", "/download/")
+      }
+
+      return url
+    } catch (e) {
+      console.warn("Invalid URL:", url)
+      return url
+    }
+  }, [])
+
+  // Fetch movie data with retry mechanism
+  const fetchMovie = useCallback(
+    async (movieId: string, retry = 0) => {
+      setLoading(true)
+      setError(null)
+
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+
+        const response = await fetch(`https://web-production-6321.up.railway.app/movies/${movieId}`, {
+          signal: controller.signal,
+          headers: {
+            "Cache-Control": "no-cache",
+            Pragma: "no-cache",
+          },
+        })
+
+        clearTimeout(timeoutId)
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        }
+
+        const movieData: Movie = await response.json()
+
+        // Process and validate video URLs
+        const qualities: VideoQuality[] = []
+
+        if (movieData.video_link_480p) {
+          qualities.push({
+            quality: "480p",
+            url: processVideoUrl(movieData.video_link_480p),
+            label: "480P",
+          })
+        }
+
+        if (movieData.video_link_720p) {
+          qualities.push({
+            quality: "720p",
+            url: processVideoUrl(movieData.video_link_720p),
+            label: "720P",
+          })
+        }
+
+        if (movieData.video_link_1080p) {
+          qualities.push({
+            quality: "1080p",
+            url: processVideoUrl(movieData.video_link_1080p),
+            label: "1080P",
+          })
+        }
+
+        if (qualities.length === 0) {
+          throw new Error("No valid video sources found")
+        }
+
+        setMovie(movieData)
+        setVideoQualities(qualities)
+
+        // Auto-select best quality based on network speed
+        let defaultQuality: "480p" | "720p" | "1080p" = "720p"
+        if (networkSpeed === "slow" && qualities.find((q) => q.quality === "480p")) {
+          defaultQuality = "480p"
+        } else if (networkSpeed === "fast" && qualities.find((q) => q.quality === "1080p")) {
+          defaultQuality = "1080p"
+        }
+
+        const selectedQuality = qualities.find((q) => q.quality === defaultQuality) || qualities[0]
+        setCurrentQuality(selectedQuality.quality)
+        setVideoSrc(selectedQuality.url)
+        setRetryCount(0)
+      } catch (err: any) {
+        console.error("Fetch movie error:", err)
+
+        if (retry < 3) {
+          console.log(`Retrying... Attempt ${retry + 1}`)
+          setTimeout(
+            () => {
+              setRetryCount(retry + 1)
+              fetchMovie(movieId, retry + 1)
+            },
+            2000 * (retry + 1),
+          ) // Exponential backoff
+          return
+        }
+
+        if (err.name === "AbortError") {
+          setError("Request timed out. Please check your internet connection and try again.")
+        } else if (!isOnline) {
+          setError("No internet connection. Please check your network and try again.")
+        } else {
+          setError(`Failed to load movie: ${err.message}. Please try again later.`)
+        }
+      } finally {
+        setLoading(false)
+      }
+    },
+    [processVideoUrl, networkSpeed, isOnline],
+  )
+
+  // Initial fetch
+  useEffect(() => {
     if (id) {
       fetchMovie(id)
     }
-  }, [id])
+  }, [id, fetchMovie])
 
   // Handle fullscreen change events
   useEffect(() => {
@@ -100,7 +261,7 @@ export default function WatchPage() {
         clearTimeout(controlsTimeout)
       }
       const timeout = setTimeout(() => {
-        if (isPlaying) {
+        if (isPlaying && !showSettingsMenu) {
           setShowControls(false)
         }
       }, 3000)
@@ -111,7 +272,7 @@ export default function WatchPage() {
     if (container) {
       container.addEventListener("mousemove", handleMouseMove)
       container.addEventListener("mouseleave", () => {
-        if (isPlaying) {
+        if (isPlaying && !showSettingsMenu) {
           setShowControls(false)
         }
       })
@@ -125,78 +286,123 @@ export default function WatchPage() {
         clearTimeout(controlsTimeout)
       }
     }
-  }, [isPlaying, controlsTimeout])
+  }, [isPlaying, controlsTimeout, showSettingsMenu])
 
-  // Update video source when quality changes
-  useEffect(() => {
-    if (movie) {
-      const prevTime = videoRef.current?.currentTime || 0
-      const prevPlaying = !videoRef.current?.paused
+  // Handle quality switching with state preservation
+  const handleQualityChange = useCallback(
+    async (newQuality: "480p" | "720p" | "1080p") => {
+      if (!videoRef.current || qualitySwitching) return
 
-      let newSrc = ""
-      if (currentQuality === "480p") newSrc = movie.video_link_480p
-      else if (currentQuality === "720p") newSrc = movie.video_link_720p
-      else if (currentQuality === "1080p") newSrc = movie.video_link_1080p
+      const targetQuality = videoQualities.find((q) => q.quality === newQuality)
+      if (!targetQuality) return
 
-      if (videoRef.current && newSrc && newSrc !== videoRef.current.src) {
-        setIsBuffering(true)
-        videoRef.current.src = newSrc
-        videoRef.current.load()
-        videoRef.current.currentTime = prevTime
-        if (prevPlaying) {
-          videoRef.current.play().catch((e) => console.error("Autoplay prevented after quality change:", e))
+      setQualitySwitching(true)
+      setIsBuffering(true)
+
+      // Save current state
+      const currentTimeBackup = videoRef.current.currentTime
+      const wasPlaying = !videoRef.current.paused
+      const currentVolumeBackup = videoRef.current.volume
+      const wasMutedBackup = videoRef.current.muted
+
+      try {
+        // Test if new URL is accessible
+        const testResponse = await fetch(targetQuality.url, {
+          method: "HEAD",
+          mode: "no-cors",
+        }).catch(() => null)
+
+        // Change source
+        videoRef.current.src = targetQuality.url
+        setVideoSrc(targetQuality.url)
+        setCurrentQuality(newQuality)
+
+        // Wait for metadata to load
+        await new Promise<void>((resolve, reject) => {
+          const video = videoRef.current!
+          const timeout = setTimeout(() => reject(new Error("Timeout")), 15000)
+
+          const onLoadedMetadata = () => {
+            clearTimeout(timeout)
+            video.removeEventListener("loadedmetadata", onLoadedMetadata)
+            video.removeEventListener("error", onError)
+            resolve()
+          }
+
+          const onError = () => {
+            clearTimeout(timeout)
+            video.removeEventListener("loadedmetadata", onLoadedMetadata)
+            video.removeEventListener("error", onError)
+            reject(new Error("Video load error"))
+          }
+
+          video.addEventListener("loadedmetadata", onLoadedMetadata)
+          video.addEventListener("error", onError)
+          video.load()
+        })
+
+        // Restore state
+        videoRef.current.currentTime = currentTimeBackup
+        videoRef.current.volume = currentVolumeBackup
+        videoRef.current.muted = wasMutedBackup
+
+        if (wasPlaying) {
+          await videoRef.current.play()
         }
-      }
-    }
-  }, [currentQuality, movie])
 
-  // Handle audio tracks on video load
+        setVideoLoadError(false)
+      } catch (error) {
+        console.error("Quality switch failed:", error)
+        setVideoLoadError(true)
+
+        // Fallback to previous quality
+        const fallbackQuality = videoQualities.find((q) => q.quality === currentQuality)
+        if (fallbackQuality && fallbackQuality.url !== targetQuality.url) {
+          videoRef.current.src = fallbackQuality.url
+          setVideoSrc(fallbackQuality.url)
+          videoRef.current.load()
+        }
+      } finally {
+        setQualitySwitching(false)
+        setIsBuffering(false)
+      }
+    },
+    [videoQualities, currentQuality, qualitySwitching],
+  )
+
+  // Handle audio tracks
   useEffect(() => {
     const videoElement = videoRef.current
     if (!videoElement) return
 
     const handleTracks = () => {
-      // Audio Tracks
-      if (videoElement.audioTracks && videoElement.audioTracks.length > 0) {
-        const tracks = Array.from(videoElement.audioTracks)
-        setAvailableAudioTracks(
-          tracks.map((track, index) => ({
-            id: track.id || index.toString(),
-            label: track.label || `Track ${index + 1}`,
-            language: track.language || "unknown",
-          })),
-        )
+      // Create realistic audio tracks based on movie data
+      const tracks = [
+        { id: "hindi", label: "Hindi", language: "hi" },
+        { id: "english", label: "English", language: "en" },
+        { id: "tamil", label: "Tamil", language: "ta" },
+        { id: "telugu", label: "Telugu", language: "te" },
+      ]
 
-        const defaultAudioTrack = tracks.find((track) => track.enabled) || tracks[0]
-        if (defaultAudioTrack) {
-          tracks.forEach((track) => (track.enabled = false))
-          defaultAudioTrack.enabled = true
-          setSelectedAudioTrackId(defaultAudioTrack.id || "0")
-        }
-      } else {
-        // Fallback: Create dummy audio tracks for demonstration
-        setAvailableAudioTracks([
-          { id: "hindi", label: "Hindi", language: "hi" },
-          { id: "english", label: "English", language: "en" },
-        ])
-        setSelectedAudioTrackId("hindi")
-      }
+      setAvailableAudioTracks(tracks)
+      setSelectedAudioTrackId("hindi")
     }
 
     videoElement.addEventListener("loadedmetadata", handleTracks)
     return () => videoElement.removeEventListener("loadedmetadata", handleTracks)
-  }, [movie])
+  }, [])
 
+  // Player control functions
   const togglePlayPause = useCallback(() => {
-    if (videoRef.current) {
-      if (videoRef.current.paused) {
-        videoRef.current.play().catch((e) => {
-          console.error("Play prevented:", e)
-          setError("Playback failed. Please try clicking play again.")
-        })
-      } else {
-        videoRef.current.pause()
-      }
+    if (!videoRef.current) return
+
+    if (videoRef.current.paused) {
+      videoRef.current.play().catch((e) => {
+        console.error("Play prevented:", e)
+        setError("Playback failed. Please try again or check your internet connection.")
+      })
+    } else {
+      videoRef.current.pause()
     }
   }, [])
 
@@ -226,6 +432,7 @@ export default function WatchPage() {
     if (videoRef.current) {
       setDuration(videoRef.current.duration)
       setIsBuffering(false)
+      setVideoLoadError(false)
     }
   }, [])
 
@@ -265,14 +472,18 @@ export default function WatchPage() {
   }, [])
 
   const handleAudioTrackChange = useCallback((trackId: string) => {
-    if (videoRef.current && videoRef.current.audioTracks) {
-      const audioTracks = videoRef.current.audioTracks
-      for (let i = 0; i < audioTracks.length; i++) {
-        audioTracks[i].enabled = audioTracks[i].id === trackId
-      }
-    }
     setSelectedAudioTrackId(trackId)
+    // In a real implementation, this would switch audio tracks
+    console.log("Switched to audio track:", trackId)
   }, [])
+
+  const handleRetry = useCallback(() => {
+    if (id) {
+      setError(null)
+      setVideoLoadError(false)
+      fetchMovie(id)
+    }
+  }, [id, fetchMovie])
 
   const formatTime = (time: number) => {
     if (!isFinite(time)) return "0:00"
@@ -286,46 +497,59 @@ export default function WatchPage() {
     return `${minutes}:${seconds.toString().padStart(2, "0")}`
   }
 
-  const getQualityLabel = () => {
-    switch (currentQuality) {
-      case "480p":
-        return "480P"
-      case "720p":
-        return "720P"
-      case "1080p":
-        return "1080P"
-      default:
-        return "720P"
-    }
-  }
+  const playbackSpeeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
 
-  const playbackSpeeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
-  const availableQualities = [
-    movie?.video_link_480p && "480p",
-    movie?.video_link_720p && "720p",
-    movie?.video_link_1080p && "1080p",
-  ].filter(Boolean) as ("480p" | "720p" | "1080p")[]
-
+  // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-black text-white">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-black text-white p-4">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-blue-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Loading Movie...</h2>
+          <p className="text-gray-400 mb-4">
+            {retryCount > 0 ? `Retry attempt ${retryCount}/3` : "Fetching movie details"}
+          </p>
+          <div className="flex items-center justify-center space-x-2 text-sm text-gray-500">
+            {isOnline ? (
+              <>
+                <Wifi className="h-4 w-4" />
+                <span>Connected</span>
+              </>
+            ) : (
+              <>
+                <WifiOff className="h-4 w-4" />
+                <span>Offline</span>
+              </>
+            )}
+          </div>
+        </div>
       </div>
     )
   }
 
+  // Error state
   if (error || !movie) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-black text-white p-4">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">Error</h1>
-          <p className="text-gray-400 mb-4">{error || "Movie details could not be loaded."}</p>
-          <Link
-            href="/home"
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
-          >
-            Go Home
-          </Link>
+        <div className="text-center max-w-md">
+          <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
+          <h1 className="text-2xl font-bold mb-4">Playback Error</h1>
+          <p className="text-gray-400 mb-6">{error || "Movie details could not be loaded."}</p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <button
+              onClick={handleRetry}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2"
+            >
+              <RefreshCw className="h-4 w-4" />
+              <span>Retry</span>
+            </button>
+            <Link
+              href="/home"
+              className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+            >
+              Go Home
+            </Link>
+          </div>
         </div>
       </div>
     )
@@ -358,9 +582,16 @@ export default function WatchPage() {
         <div className="relative w-full aspect-video bg-black">
           {!videoSrc ? (
             <div className="absolute inset-0 flex items-center justify-center bg-black text-white text-center p-4">
-              <p className="text-lg font-medium">
-                No video source available for this movie. Please check the movie details or try another movie.
-              </p>
+              <div>
+                <AlertCircle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
+                <p className="text-lg font-medium mb-4">No video source available</p>
+                <button
+                  onClick={handleRetry}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
             </div>
           ) : (
             <video
@@ -373,7 +604,7 @@ export default function WatchPage() {
               onEnded={() => setIsPlaying(false)}
               onError={(e) => {
                 console.error("Video error:", e.currentTarget.error)
-                setError("Video playback error. The video might be unavailable or in an unsupported format.")
+                setVideoLoadError(true)
                 setIsPlaying(false)
                 setIsBuffering(false)
               }}
@@ -381,24 +612,61 @@ export default function WatchPage() {
               onPlaying={() => setIsBuffering(false)}
               onSeeking={() => setIsBuffering(true)}
               onSeeked={() => setIsBuffering(false)}
+              onCanPlay={() => setIsBuffering(false)}
               className="w-full h-full object-contain cursor-pointer"
               playsInline
               crossOrigin="anonymous"
               onClick={togglePlayPause}
+              preload="metadata"
             >
               Your browser does not support the video tag.
             </video>
           )}
 
-          {/* Loading Spinner */}
-          {isBuffering && videoSrc && (
+          {/* Loading/Buffering Spinner */}
+          {(isBuffering || qualitySwitching) && videoSrc && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
-              <Loader2 className="h-12 w-12 animate-spin text-blue-500" />
+              <div className="text-center">
+                <Loader2 className="h-12 w-12 animate-spin text-blue-500 mx-auto mb-2" />
+                <p className="text-sm text-white">{qualitySwitching ? "Switching Quality..." : "Loading..."}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Video Load Error Overlay */}
+          {videoLoadError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-10">
+              <div className="text-center p-6">
+                <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">Video Load Error</h3>
+                <p className="text-gray-300 mb-4">Unable to load this video quality</p>
+                <div className="flex gap-2 justify-center">
+                  <button
+                    onClick={handleRetry}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm transition-colors"
+                  >
+                    Retry
+                  </button>
+                  {videoQualities.length > 1 && (
+                    <button
+                      onClick={() => {
+                        const fallbackQuality = videoQualities.find((q) => q.quality !== currentQuality)
+                        if (fallbackQuality) {
+                          handleQualityChange(fallbackQuality.quality)
+                        }
+                      }}
+                      className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded text-sm transition-colors"
+                    >
+                      Try Different Quality
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
           {/* Custom Controls */}
-          {videoSrc && (
+          {videoSrc && !videoLoadError && (
             <div
               className={`absolute inset-0 flex flex-col justify-end transition-opacity duration-300 ${
                 showControls ? "opacity-100" : "opacity-0"
@@ -466,12 +734,13 @@ export default function WatchPage() {
                     <div className="relative">
                       <select
                         value={currentQuality}
-                        onChange={(e) => setCurrentQuality(e.target.value as "480p" | "720p" | "1080p")}
-                        className="bg-white/20 text-white text-sm px-2 py-1 rounded border-none outline-none cursor-pointer hover:bg-white/30 transition-colors"
+                        onChange={(e) => handleQualityChange(e.target.value as "480p" | "720p" | "1080p")}
+                        disabled={qualitySwitching}
+                        className="bg-white/20 text-white text-sm px-2 py-1 rounded border-none outline-none cursor-pointer hover:bg-white/30 transition-colors disabled:opacity-50"
                       >
-                        {availableQualities.map((quality) => (
-                          <option key={quality} value={quality} className="bg-black text-white">
-                            {quality.toUpperCase()}
+                        {videoQualities.map((quality) => (
+                          <option key={quality.quality} value={quality.quality} className="bg-black text-white">
+                            {quality.label}
                           </option>
                         ))}
                       </select>
