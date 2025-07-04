@@ -122,11 +122,11 @@ export default function WatchPage() {
     const loadPlyr = async () => {
       const cssLink = document.createElement("link")
       cssLink.rel = "stylesheet"
-      cssLink.href = "https://cdnjs.cloudflare.com/ajax/libs/plyr/3.7.8/plyr.css"
+      cssLink.href = "https://cdn.plyr.io/3.7.8/plyr.css"
       document.head.appendChild(cssLink)
 
       const script = document.createElement("script")
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/plyr/3.7.8/plyr.min.js"
+      script.src = "https://cdn.plyr.io/3.7.8/plyr.polyfilled.js" // Updated here
       script.onload = () => setPlyrLoaded(true)
       document.head.appendChild(script)
 
@@ -185,17 +185,8 @@ export default function WatchPage() {
 
       const plyrOptions: PlyrOptions = {
         controls: [
-          "play-large",
-          "play",
-          "progress",
-          "current-time",
-          "mute",
-          "volume",
-          "captions",
-          "settings",
-          "pip",
-          "airplay",
-          "fullscreen"
+          "play-large", "play", "progress", "current-time", "mute",
+          "volume", "captions", "settings", "pip", "airplay", "fullscreen"
         ],
         settings: ["captions", "quality", "speed"],
         quality: {
@@ -220,33 +211,15 @@ export default function WatchPage() {
         clickToPlay: true,
         hideControls: true,
         resetOnEnd: false,
-        keyboard: {
-          focused: true,
-          global: true
-        },
-        tooltips: {
-          controls: true,
-          seek: true
-        },
-        captions: {
-          active: false,
-          language: "en"
-        },
-        fullscreen: {
-          enabled: true,
-          fallback: true,
-          iosNative: true
-        },
-        pip: {
-          enabled: true
-        }
+        keyboard: { focused: true, global: true },
+        tooltips: { controls: true, seek: true },
+        captions: { active: false, language: "en" },
+        fullscreen: { enabled: true, fallback: true, iosNative: true },
+        pip: { enabled: true }
       }
 
       plyrRef.current = new window.Plyr(videoRef.current, plyrOptions)
-      plyrRef.current.source = {
-        type: "video",
-        sources
-      }
+      plyrRef.current.source = { type: "video", sources }
 
       plyrRef.current.on("qualitychange", (event) => {
         const quality = event.detail.quality
@@ -298,7 +271,6 @@ export default function WatchPage() {
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col items-center p-4 sm:p-6 lg:p-8">
-      {/* Back Button */}
       <div className="w-full max-w-6xl mb-6">
         <Link
           href={`/movie/${movie.id}`}
@@ -309,75 +281,25 @@ export default function WatchPage() {
         </Link>
       </div>
 
-      {/* Movie Title */}
       <h1 className="text-3xl md:text-4xl font-bold text-center mb-8 max-w-6xl w-full">
         {movie.title.split("(")[0].trim()}
       </h1>
 
-      {/* Video Player Container */}
       <div className="w-full max-w-4xl bg-gray-900 rounded-lg shadow-lg overflow-hidden">
         <div className="relative w-full aspect-video bg-black">
           <video
             ref={videoRef}
-            className="w-full h-full"
+            id="player"
+            controls
             playsInline
             crossOrigin="anonymous"
+            referrerPolicy="no-referrer"
             poster={movie.thumbnail_url}
+            className="w-full h-full"
           />
-          <style jsx>{`
-            :global(.plyr) {
-              border-radius: 0;
-            }
-            :global(.plyr--video) {
-              background: black;
-            }
-            :global(.plyr__controls) {
-              background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
-              color: white;
-            }
-            :global(.plyr__control) {
-              color: white;
-            }
-            :global(.plyr__control:hover) {
-              background: rgba(255, 255, 255, 0.1);
-            }
-            :global(.plyr__control--pressed) {
-              background: rgba(59, 130, 246, 0.8);
-            }
-            :global(.plyr__progress__buffer) {
-              background: rgba(255, 255, 255, 0.2);
-            }
-            :global(.plyr__progress__played) {
-              background: #3b82f6;
-            }
-            :global(.plyr__volume__input) {
-              background: rgba(255, 255, 255, 0.2);
-            }
-            :global(.plyr__volume__input::-webkit-slider-thumb) {
-              background: #3b82f6;
-            }
-            :global(.plyr__menu) {
-              background: rgba(0, 0, 0, 0.9);
-              border: 1px solid rgba(255, 255, 255, 0.1);
-            }
-            :global(.plyr__menu__item) {
-              color: white;
-            }
-            :global(.plyr__menu__item:hover) {
-              background: rgba(59, 130, 246, 0.8);
-            }
-            :global(.plyr__menu__item--active) {
-              background: rgba(59, 130, 246, 0.6);
-            }
-            :global(.plyr__tooltip) {
-              background: rgba(0, 0, 0, 0.9);
-              color: white;
-            }
-          `}</style>
         </div>
       </div>
 
-      {/* Quality Indicator */}
       <div className="mt-4 text-center">
         <span className="text-sm text-gray-400">
           Current Quality: <span className="text-blue-400 font-medium">{currentQuality}</span>
