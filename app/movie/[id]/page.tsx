@@ -125,7 +125,6 @@ export default function MoviePage() {
               {/* Download Section */}
               <div className="bg-gray-50 rounded-lg p-6">
                 <DownloadLinks
-                  video_link_480p={movie.video_link_480p}
                   video_link_720p={movie.video_link_720p}
                   video_link_1080p={movie.video_link_1080p}
                   title={movie.title}
