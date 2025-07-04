@@ -3,17 +3,31 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { useMovies } from '../../context/MovieContext'
+// import { useMovies } from '../../context/MovieContext' // Update this path to match your project structure
 
 const Watch = () => {
   const { id } = useParams()
-  const { fetchMovie } = useMovies()
+  // const { fetchMovie } = useMovies() // Uncomment when MovieContext is available
   const [movie, setMovie] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [currentQuality, setCurrentQuality] = useState('720p')
   const playerRef = useRef(null)
   const clapprPlayerRef = useRef(null)
+
+  // Temporary mock function - replace with your actual fetchMovie function
+  const fetchMovie = async (movieId) => {
+    // Replace this with your actual API call
+    try {
+      const response = await fetch(`/api/movies/${movieId}`)
+      if (!response.ok) {
+        throw new Error('Failed to fetch movie')
+      }
+      return await response.json()
+    } catch (error) {
+      throw new Error('Movie not found')
+    }
+  }
 
   useEffect(() => {
     const loadMovie = async () => {
