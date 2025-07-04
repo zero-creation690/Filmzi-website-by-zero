@@ -1,13 +1,12 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useState, useRef, useCallback } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Loader2 } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
 import type { Movie } from "@/contexts/MovieContext"
 
-// Plyr types
 interface PlyrOptions {
   controls?: string[]
   settings?: string[]
@@ -114,22 +113,18 @@ export default function WatchPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [plyrLoaded, setPlyrLoaded] = useState(false)
-  const [isBuffering, setIsBuffering] = useState(true)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const plyrRef = useRef<PlyrInstance | null>(null)
-  const [currentQuality, setCurrentQuality] = useState<"480p" | "720p" | "1080p">("720p")
+  const [currentQuality, setCurrentQuality] = useState<"720p" | "1080p">("720p")
 
-  // Load Plyr CSS and JS
   useEffect(() => {
     const loadPlyr = async () => {
-      // Load Plyr CSS
       const cssLink = document.createElement("link")
       cssLink.rel = "stylesheet"
       cssLink.href = "https://cdnjs.cloudflare.com/ajax/libs/plyr/3.7.8/plyr.css"
       document.head.appendChild(cssLink)
 
-      // Load Plyr JS
       const script = document.createElement("script")
       script.src = "https://cdnjs.cloudflare.com/ajax/libs/plyr/3.7.8/plyr.min.js"
       script.onload = () => setPlyrLoaded(true)
@@ -144,7 +139,6 @@ export default function WatchPage() {
     loadPlyr()
   }, [])
 
-  // Fetch movie data
   useEffect(() => {
     const fetchMovie = async (movieId: string) => {
       setLoading(true)
@@ -167,21 +161,13 @@ export default function WatchPage() {
     }
   }, [id])
 
-  // Initialize Plyr when both movie data and Plyr are loaded
   useEffect(() => {
     if (movie && plyrLoaded && videoRef.current && !plyrRef.current) {
-      // Get available qualities
       const availableQualities = []
       const sources = []
 
-      if (movie.video_link_480p) {
-        availableQualities.push("480p")
-        sources.push({
-          src: movie.video_link_480p,
-          type: "video/mp4",
-          size: "480"
-        })
-      }
+      // Remove 480p block
+      // Only add 720p and 1080p if available
       if (movie.video_link_720p) {
         availableQualities.push("720p")
         sources.push({
@@ -219,8 +205,7 @@ export default function WatchPage() {
           options: sources.map(s => s.size || "720"),
           forced: true,
           onChange: (quality: string) => {
-            const qualityMap: { [key: string]: "480p" | "720p" | "1080p" } = {
-              "480": "480p",
+            const qualityMap: { [key: string]: "720p" | "1080p" } = {
               "720": "720p",
               "1080": "1080p"
             }
@@ -259,40 +244,15 @@ export default function WatchPage() {
         }
       }
 
-      // Initialize Plyr
       plyrRef.current = new window.Plyr(videoRef.current, plyrOptions)
-
-      // Set video source
       plyrRef.current.source = {
         type: "video",
-        sources: sources
+        sources
       }
-
-      // Add event listeners
-      plyrRef.current.on("loadedmetadata", () => {
-        setIsBuffering(false)
-      })
-
-      plyrRef.current.on("waiting", () => {
-        setIsBuffering(true)
-      })
-
-      plyrRef.current.on("playing", () => {
-        setIsBuffering(false)
-      })
-
-      plyrRef.current.on("seeking", () => {
-        setIsBuffering(true)
-      })
-
-      plyrRef.current.on("seeked", () => {
-        setIsBuffering(false)
-      })
 
       plyrRef.current.on("qualitychange", (event) => {
         const quality = event.detail.quality
-        const qualityMap: { [key: string]: "480p" | "720p" | "1080p" } = {
-          "480": "480p",
+        const qualityMap: { [key: string]: "720p" | "1080p" } = {
           "720": "720p",
           "1080": "1080p"
         }
@@ -305,7 +265,6 @@ export default function WatchPage() {
       })
     }
 
-    // Cleanup function
     return () => {
       if (plyrRef.current) {
         plyrRef.current.destroy()
@@ -317,7 +276,7 @@ export default function WatchPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <p className="text-gray-400">Loading movie...</p>
       </div>
     )
   }
@@ -360,22 +319,13 @@ export default function WatchPage() {
       {/* Video Player Container */}
       <div className="w-full max-w-4xl bg-gray-900 rounded-lg shadow-lg overflow-hidden">
         <div className="relative w-full aspect-video bg-black">
-          {/* Plyr Video Player */}
           <video
             ref={videoRef}
             className="w-full h-full"
             playsInline
             crossOrigin="anonymous"
           />
-
-          {/* Loading Spinner Overlay */}
-          {(isBuffering || !plyrLoaded) && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-50">
-              <Loader2 className="h-12 w-12 animate-spin text-blue-500" />
-            </div>
-          )}
-
-          {/* Custom Plyr Styling */}
+          {/* No spinner shown here anymore */}
           <style jsx>{`
             :global(.plyr) {
               border-radius: 0;
