@@ -166,8 +166,6 @@ export default function WatchPage() {
       const availableQualities = []
       const sources = []
 
-      // Remove 480p block
-      // Only add 720p and 1080p if available
       if (movie.video_link_720p) {
         availableQualities.push("720p")
         sources.push({
@@ -324,8 +322,8 @@ export default function WatchPage() {
             className="w-full h-full"
             playsInline
             crossOrigin="anonymous"
+            poster={movie.thumbnail_url}
           />
-          {/* No spinner shown here anymore */}
           <style jsx>{`
             :global(.plyr) {
               border-radius: 0;
