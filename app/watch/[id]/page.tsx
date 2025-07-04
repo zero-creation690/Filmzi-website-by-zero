@@ -1,10 +1,19 @@
 "use client"
 
+import type React from "react"
 import { useEffect, useState, useRef, useCallback } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import {
   ArrowLeft,
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Maximize,
+  Minimize,
+  Settings,
+  PictureInPicture2,
 } from "lucide-react"
 import type { Movie } from "@/contexts/MovieContext"
 
@@ -14,136 +23,282 @@ export default function WatchPage() {
   const [movie, setMovie] = useState<Movie | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [currentQuality, setCurrentQuality] = useState<"720p" | "1080p">("720p")
-  const [videoSrc, setVideoSrc] = useState<string | null>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
 
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [currentQuality, setCurrentQuality] = useState<"720p" | "1080p">("720p")
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [isMuted, setIsMuted] = useState(false)
+  const [volume, setVolume] = useState(1)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [isFullScreen, setIsFullScreen] = useState(false)
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false)
+  const [playbackSpeed, setPlaybackSpeed] = useState(1)
+
+  const availableQualities = ["720p", "1080p"] as const
+  const playbackSpeeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
+
+  // Fetch movie data
   useEffect(() => {
-    const fetchMovie = async (movieId: string) => {
+    const fetchMovie = async () => {
       try {
-        const response = await fetch(`https://web-production-6321.up.railway.app/movies/${movieId}`)
-        if (!response.ok) throw new Error("Movie not found")
-        const movieData: Movie = await response.json()
-        setMovie(movieData)
-        setVideoSrc(movieData.video_link_720p) // default to 720p
-        setCurrentQuality("720p")
+        const res = await fetch(`https://web-production-6321.up.railway.app/movies/${id}`)
+        if (!res.ok) throw new Error("Movie not found")
+        const data: Movie = await res.json()
+        setMovie(data)
       } catch (err) {
-        setError("Failed to fetch movie details.")
-        console.error(err)
+        setError("Failed to load movie.")
       } finally {
         setLoading(false)
       }
     }
 
-    if (id) fetchMovie(id)
+    if (id) fetchMovie()
   }, [id])
 
+  // Handle fullscreen state
   useEffect(() => {
-    if (!movie) return
+    const handleFS = () => setIsFullScreen(document.fullscreenElement != null)
+    document.addEventListener("fullscreenchange", handleFS)
+    return () => document.removeEventListener("fullscreenchange", handleFS)
+  }, [])
 
-    const prevTime = videoRef.current?.currentTime || 0
-    const wasPlaying = !videoRef.current?.paused
+  // Change video quality
+  useEffect(() => {
+    if (!movie || !videoRef.current) return
 
     const newSrc =
-      currentQuality === "1080p"
-        ? movie.video_link_1080p
-        : movie.video_link_720p
+      currentQuality === "1080p" ? movie.video_link_1080p : movie.video_link_720p
 
-    setVideoSrc(newSrc)
+    const prevTime = videoRef.current.currentTime
+    const wasPlaying = !videoRef.current.paused
 
-    if (videoRef.current) {
-      videoRef.current.src = newSrc
-      videoRef.current.load()
-      videoRef.current.currentTime = prevTime
-      if (wasPlaying) {
-        videoRef.current.play().catch((e) => console.error("Autoplay prevented:", e))
-      }
+    videoRef.current.src = newSrc
+    videoRef.current.load()
+    videoRef.current.currentTime = prevTime
+
+    if (wasPlaying) {
+      videoRef.current
+        .play()
+        .then(() => setIsPlaying(true))
+        .catch((e) => console.error("Play failed:", e))
     }
   }, [currentQuality, movie])
+
+  // Playback handlers
+  const togglePlayPause = () => {
+    if (!videoRef.current) return
+    if (videoRef.current.paused) {
+      videoRef.current.play().then(() => setIsPlaying(true))
+    } else {
+      videoRef.current.pause()
+      setIsPlaying(false)
+    }
+  }
+
+  const toggleMute = () => {
+    if (!videoRef.current) return
+    videoRef.current.muted = !isMuted
+    setIsMuted(!isMuted)
+  }
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = parseFloat(e.target.value)
+    if (videoRef.current) {
+      videoRef.current.volume = v
+      setVolume(v)
+      setIsMuted(v === 0)
+    }
+  }
+
+  const handleTimeUpdate = () => {
+    if (videoRef.current) {
+      setCurrentTime(videoRef.current.currentTime)
+    }
+  }
+
+  const handleLoadedMetadata = () => {
+    if (videoRef.current) {
+      setDuration(videoRef.current.duration)
+    }
+  }
+
+  const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const time = parseFloat(e.target.value)
+    if (videoRef.current) {
+      videoRef.current.currentTime = time
+      setCurrentTime(time)
+    }
+  }
+
+  const toggleFullScreen = () => {
+    if (!videoRef.current) return
+    if (!document.fullscreenElement) {
+      videoRef.current.requestFullscreen().catch(() => {})
+    } else {
+      document.exitFullscreen()
+    }
+  }
+
+  const handlePlaybackSpeedChange = (speed: number) => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = speed
+      setPlaybackSpeed(speed)
+      setShowSettingsMenu(false)
+    }
+  }
+
+  const togglePictureInPicture = () => {
+    if (!videoRef.current) return
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(() => {})
+    } else {
+      videoRef.current.requestPictureInPicture().catch(() => {})
+    }
+  }
+
+  const formatTime = (t: number) =>
+    `${Math.floor(t / 60)
+      .toString()
+      .padStart(2, "0")}:${Math.floor(t % 60)
+      .toString()
+      .padStart(2, "0")}`
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white">
-        <span>Loading...</span>
+        <div>Loading...</div>
       </div>
     )
   }
 
   if (error || !movie) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-black text-white text-center p-4">
-        <h1 className="text-2xl font-bold mb-2">Error</h1>
-        <p className="mb-4">{error || "Movie not found."}</p>
-        <Link
-          href="/home"
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg"
-        >
-          Go Home
-        </Link>
+      <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        <div>{error}</div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col items-center p-4 sm:p-6 lg:p-8">
-      {/* Back Button */}
-      <div className="w-full max-w-6xl mb-6">
-        <Link
-          href={`/movie/${movie.id}`}
-          className="inline-flex items-center space-x-2 text-blue-400 hover:text-blue-300"
-        >
-          <ArrowLeft className="h-5 w-5" />
-          <span>Back to Movie Details</span>
+    <div className="min-h-screen bg-black text-white p-4 flex flex-col items-center">
+      {/* Back */}
+      <div className="w-full max-w-5xl mb-4">
+        <Link href={`/movie/${movie.id}`} className="flex items-center space-x-2 text-blue-400">
+          <ArrowLeft className="w-5 h-5" />
+          <span>Back to Movie</span>
         </Link>
       </div>
 
-      {/* Movie Title */}
-      <h1 className="text-3xl md:text-4xl font-bold text-center mb-6">
-        {movie.title.split("(")[0].trim()}
-      </h1>
+      {/* Title */}
+      <h1 className="text-3xl font-bold mb-6">{movie.title}</h1>
 
-      {/* Native HTML5 Video Player */}
-      <div className="w-full max-w-4xl bg-gray-900 rounded-lg overflow-hidden mb-4">
+      {/* Video Player */}
+      <div className="w-full max-w-4xl aspect-video bg-black rounded-lg overflow-hidden relative">
         <video
           ref={videoRef}
-          src={videoSrc || undefined}
-          className="w-full h-full"
-          controls
           autoPlay
-          poster={movie.thumbnail_url}
-          crossOrigin="anonymous"
           playsInline
-        >
-          Your browser does not support the video tag.
-        </video>
-      </div>
+          muted={isMuted}
+          onPlay={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
+          onTimeUpdate={handleTimeUpdate}
+          onLoadedMetadata={handleLoadedMetadata}
+          className="w-full h-full"
+        />
 
-      {/* Quality Selection */}
-      <div className="flex space-x-4">
-        {movie.video_link_720p && (
-          <button
-            onClick={() => setCurrentQuality("720p")}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              currentQuality === "720p"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-            }`}
-          >
-            720p
-          </button>
-        )}
-        {movie.video_link_1080p && (
-          <button
-            onClick={() => setCurrentQuality("1080p")}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              currentQuality === "1080p"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-            }`}
-          >
-            1080p
-          </button>
-        )}
+        {/* Controls */}
+        <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/80 to-transparent p-4 space-y-2">
+          {/* Progress */}
+          <input
+            type="range"
+            min={0}
+            max={duration}
+            value={currentTime}
+            onChange={handleProgressChange}
+            className="w-full"
+          />
+          <div className="flex justify-between text-sm text-gray-400">
+            <span>{formatTime(currentTime)}</span>
+            <span>{formatTime(duration)}</span>
+          </div>
+
+          {/* Buttons */}
+          <div className="flex justify-between items-center">
+            <div className="flex space-x-3 items-center">
+              <button onClick={togglePlayPause}>
+                {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
+              </button>
+              <button onClick={toggleMute}>
+                {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
+              </button>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={volume}
+                onChange={handleVolumeChange}
+              />
+            </div>
+
+            <div className="flex items-center space-x-3 relative">
+              {/* Settings */}
+              <button onClick={() => setShowSettingsMenu((prev) => !prev)}>
+                <Settings className="w-6 h-6" />
+              </button>
+
+              {/* Dropdown */}
+              {showSettingsMenu && (
+                <div className="absolute bottom-full right-0 bg-gray-800 text-sm rounded p-2 z-10 w-40">
+                  <div className="mb-2">
+                    <div className="text-gray-300 font-semibold mb-1">Quality</div>
+                    {availableQualities.map((q) => (
+                      <button
+                        key={q}
+                        onClick={() => {
+                          setCurrentQuality(q)
+                          setShowSettingsMenu(false)
+                        }}
+                        className={`block w-full text-left px-2 py-1 rounded hover:bg-gray-700 ${
+                          currentQuality === q ? "bg-blue-600 text-white" : "text-gray-300"
+                        }`}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="border-t border-gray-600 pt-2 mt-2">
+                    <div className="text-gray-300 font-semibold mb-1">Speed</div>
+                    {playbackSpeeds.map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => handlePlaybackSpeedChange(s)}
+                        className={`block w-full text-left px-2 py-1 rounded hover:bg-gray-700 ${
+                          playbackSpeed === s ? "bg-blue-600 text-white" : "text-gray-300"
+                        }`}
+                      >
+                        {s}x
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* PiP */}
+              {document.pictureInPictureEnabled && (
+                <button onClick={togglePictureInPicture}>
+                  <PictureInPicture2 className="w-6 h-6" />
+                </button>
+              )}
+
+              {/* Fullscreen */}
+              <button onClick={toggleFullScreen}>
+                {isFullScreen ? <Minimize className="w-6 h-6" /> : <Maximize className="w-6 h-6" />}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )
