@@ -1,6 +1,9 @@
+'use client'
+
 import React, { useState, useEffect, useRef } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { useMovies } from '../context/MovieContext'
+import { useParams } from 'next/navigation'
+import Link from 'next/link'
+import { useMovies } from '../../context/MovieContext'
 
 const Watch = () => {
   const { id } = useParams()
@@ -36,8 +39,36 @@ const Watch = () => {
   }, [id, fetchMovie])
 
   useEffect(() => {
-    if (movie && playerRef.current) {
-      initializeClapprPlayer()
+    // Load Clappr dynamically
+    const loadClappr = async () => {
+      if (typeof window !== 'undefined' && !window.Clappr) {
+        // Create script element
+        const script = document.createElement('script')
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/clappr/0.4.7/clappr.min.js'
+        script.async = true
+        
+        // Create link element for CSS
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = 'https://cdnjs.cloudflare.com/ajax/libs/clappr/0.4.7/clappr.min.css'
+        
+        // Append to head
+        document.head.appendChild(link)
+        document.head.appendChild(script)
+        
+        // Wait for script to load
+        script.onload = () => {
+          if (movie && playerRef.current) {
+            initializeClapprPlayer()
+          }
+        }
+      } else if (movie && playerRef.current && window.Clappr) {
+        initializeClapprPlayer()
+      }
+    }
+
+    if (movie) {
+      loadClappr()
     }
 
     return () => {
@@ -130,7 +161,7 @@ const Watch = () => {
         <div className="text-center">
           <h2 className="text-2xl font-bold text-filmzi-accent mb-4">Error</h2>
           <p className="text-gray-400">{error}</p>
-          <Link to="/" className="text-filmzi-accent hover:text-filmzi-hover mt-4 inline-block">
+          <Link href="/" className="text-filmzi-accent hover:text-filmzi-hover mt-4 inline-block">
             Return to Home
           </Link>
         </div>
@@ -143,7 +174,7 @@ const Watch = () => {
       <div className="flex justify-center items-center min-h-screen">
         <div className="text-center">
           <h2 className="text-2xl font-bold text-filmzi-accent mb-4">Movie Not Found</h2>
-          <Link to="/" className="text-filmzi-accent hover:text-filmzi-hover">
+          <Link href="/" className="text-filmzi-accent hover:text-filmzi-hover">
             Return to Home
           </Link>
         </div>
@@ -155,25 +186,11 @@ const Watch = () => {
 
   return (
     <div className="min-h-screen bg-filmzi-bg">
-      {/* Load Clappr CSS and JS */}
-      <link 
-        rel="stylesheet" 
-        href="https://cdnjs.cloudflare.com/ajax/libs/clappr/0.4.7/clappr.min.css" 
-      />
-      <script 
-        src="https://cdnjs.cloudflare.com/ajax/libs/clappr/0.4.7/clappr.min.js"
-        onLoad={() => {
-          if (movie && playerRef.current) {
-            initializeClapprPlayer()
-          }
-        }}
-      />
-
       <div className="container mx-auto px-4 py-8">
         {/* Back Button */}
         <div className="mb-6">
           <Link 
-            to={`/movie/${movie.id}`}
+            href={`/movie/${movie.id}`}
             className="inline-flex items-center text-filmzi-accent hover:text-filmzi-hover transition-colors"
           >
             <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
