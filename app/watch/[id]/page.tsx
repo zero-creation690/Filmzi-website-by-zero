@@ -9,7 +9,6 @@ import type { Movie } from "@/contexts/MovieContext"
 declare global {
   interface Window {
     Clappr: any
-    ClapprLevelSelector: any
   }
 }
 
@@ -20,6 +19,8 @@ export default function WatchPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const playerContainerRef = useRef<HTMLDivElement>(null)
+  const playerInstanceRef = useRef<any>(null)
+  const [scriptsLoaded, setScriptsLoaded] = useState(false)
 
   useEffect(() => {
     const fetchMovie = async () => {
@@ -40,74 +41,101 @@ export default function WatchPage() {
     if (id) fetchMovie()
   }, [id])
 
+  // Load Clappr scripts
   useEffect(() => {
-    if (!movie || !playerContainerRef.current) return
+    if (scriptsLoaded) return
 
-    const loadClappr = async () => {
-      // Load Clappr core
-      const script = document.createElement("script")
-      script.src = "https://cdn.jsdelivr.net/npm/clappr@latest/dist/clappr.min.js"
-      script.async = true
-      document.body.appendChild(script)
+    const loadScript = (src: string): Promise<void> => {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement("script")
+        script.src = src
+        script.onload = () => resolve()
+        script.onerror = reject
+        document.head.appendChild(script)
+      })
+    }
 
-      // Load LevelSelector plugin (for quality)
-      const levelScript = document.createElement("script")
-      levelScript.src = "https://cdn.jsdelivr.net/npm/clappr-level-selector@latest/dist/level-selector.min.js"
-      levelScript.async = true
-      document.body.appendChild(levelScript)
-
-      script.onload = () => {
-        levelScript.onload = () => {
-          const sources = []
-
-          if (movie.video_link_720p) {
-            sources.push({
-              source: movie.video_link_720p,
-              mimeType: "video/mp4",
-              label: "720p",
-              default: true,
-            })
-          }
-
-          if (movie.video_link_1080p) {
-            sources.push({
-              source: movie.video_link_1080p,
-              mimeType: "video/mp4",
-              label: "1080p",
-            })
-          }
-
-          new window.Clappr.Player({
-            parentId: "#player-container",
-            poster: movie.thumbnail_url,
-            autoPlay: true,
-            width: "100%",
-            height: "100%",
-            playback: {
-              controls: true,
-            },
-            source: sources[0].source,
-            plugins: [window.ClapprLevelSelector],
-            levelSelectorConfig: {
-              title: "Quality",
-              labels: sources.reduce((acc: any, src, idx) => {
-                acc[idx] = src.label
-                return acc
-              }, {}),
-            },
-            sources,
-          })
-        }
-      }
-
-      return () => {
-        document.body.removeChild(script)
-        document.body.removeChild(levelScript)
+    const loadScripts = async () => {
+      try {
+        await loadScript("https://cdn.jsdelivr.net/npm/clappr@latest/dist/clappr.min.js")
+        await loadScript("https://cdn.jsdelivr.net/npm/clappr-level-selector@latest/dist/clappr-level-selector.min.js")
+        setScriptsLoaded(true)
+      } catch (error) {
+        console.error("Failed to load Clappr scripts:", error)
+        setError("Failed to load video player.")
       }
     }
 
-    loadClappr()
-  }, [movie])
+    loadScripts()
+  }, [])
+
+  // Initialize player when movie data and scripts are ready
+  useEffect(() => {
+    if (!movie || !scriptsLoaded || !playerContainerRef.current || !window.Clappr) return
+
+    // Clean up existing player
+    if (playerInstanceRef.current) {
+      playerInstanceRef.current.destroy()
+      playerInstanceRef.current = null
+    }
+
+    // Clear container
+    if (playerContainerRef.current) {
+      playerContainerRef.current.innerHTML = ""
+    }
+
+    // Prepare video sources
+    const sources = []
+    if (movie.video_link_720p) {
+      sources.push({
+        source: movie.video_link_720p,
+        label: "720p"
+      })
+    }
+    if (movie.video_link_1080p) {
+      sources.push({
+        source: movie.video_link_1080p,
+        label: "1080p"
+      })
+    }
+
+    // Default to 720p if available, otherwise use 1080p
+    const defaultSource = movie.video_link_720p || movie.video_link_1080p
+
+    // Player configuration
+    const playerConfig = {
+      source: defaultSource,
+      parentId: playerContainerRef.current,
+      poster: movie.thumbnail_url,
+      autoPlay: true,
+      width: "100%",
+      height: 500,
+      plugins: sources.length > 1 ? [window.LevelSelector] : [],
+      levelSelectorConfig: sources.length > 1 ? {
+        title: "Quality",
+        labels: sources.reduce((acc, curr) => {
+          acc[curr.source] = curr.label
+          return acc
+        }, {} as Record<string, string>),
+        sources: sources.map(s => s.source)
+      } : undefined
+    }
+
+    try {
+      playerInstanceRef.current = new window.Clappr.Player(playerConfig)
+    } catch (error) {
+      console.error("Failed to initialize Clappr player:", error)
+      setError("Failed to initialize video player.")
+    }
+
+    // Cleanup function
+    return () => {
+      if (playerInstanceRef.current) {
+        playerInstanceRef.current.destroy()
+        playerInstanceRef.current = null
+      }
+    }
+  }, [movie, scriptsLoaded])
 
   if (loading) {
     return (
@@ -146,11 +174,11 @@ export default function WatchPage() {
       <h1 className="text-3xl font-bold text-center mb-6">{movie.title.split("(")[0].trim()}</h1>
 
       {/* Clappr Player */}
-      <div
-        id="player-container"
+      <div 
         ref={playerContainerRef}
-        className="w-full max-w-4xl aspect-video bg-black rounded-lg overflow-hidden"
-      ></div>
+        className="w-full max-w-4xl bg-black rounded-lg overflow-hidden"
+        style={{ height: "500px" }}
+      />
     </div>
   )
 }
