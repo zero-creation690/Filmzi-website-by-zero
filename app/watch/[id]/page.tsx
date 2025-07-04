@@ -4,40 +4,145 @@ import type React from "react"
 import { useEffect, useState, useRef, useCallback } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
-import {
-  ArrowLeft,
-  Play,
-  Pause,
-  Volume2,
-  VolumeX,
-  Maximize,
-  Minimize,
-  Settings,
-  PictureInPicture2,
-  Loader2,
-} from "lucide-react"
+import { ArrowLeft, Loader2 } from "lucide-react"
 import type { Movie } from "@/contexts/MovieContext"
+
+// Plyr types
+interface PlyrOptions {
+  controls?: string[]
+  settings?: string[]
+  quality?: {
+    default: string
+    options: string[]
+    forced: boolean
+    onChange: (quality: string) => void
+  }
+  speed?: {
+    selected: number
+    options: number[]
+  }
+  autoplay?: boolean
+  muted?: boolean
+  volume?: number
+  clickToPlay?: boolean
+  hideControls?: boolean
+  resetOnEnd?: boolean
+  keyboard?: {
+    focused: boolean
+    global: boolean
+  }
+  tooltips?: {
+    controls: boolean
+    seek: boolean
+  }
+  captions?: {
+    active: boolean
+    language: string
+  }
+  fullscreen?: {
+    enabled: boolean
+    fallback: boolean
+    iosNative: boolean
+  }
+  pip?: {
+    enabled: boolean
+  }
+}
+
+interface PlyrInstance {
+  play: () => Promise<void>
+  pause: () => void
+  stop: () => void
+  restart: () => void
+  rewind: (seekTime?: number) => void
+  forward: (seekTime?: number) => void
+  increaseVolume: (step?: number) => void
+  decreaseVolume: (step?: number) => void
+  togglePlay: () => Promise<void>
+  toggleMute: () => void
+  toggleCaptions: () => void
+  toggleFullscreen: () => void
+  airplay: () => void
+  pip: () => void
+  on: (event: string, callback: (event: any) => void) => void
+  off: (event: string, callback: (event: any) => void) => void
+  once: (event: string, callback: (event: any) => void) => void
+  destroy: () => void
+  source: {
+    type: string
+    sources: Array<{
+      src: string
+      type: string
+      size?: string
+    }>
+  }
+  currentTime: number
+  duration: number
+  ended: boolean
+  fullscreen: {
+    active: boolean
+    enabled: boolean
+    enter: () => void
+    exit: () => void
+    toggle: () => void
+  }
+  loop: boolean
+  muted: boolean
+  paused: boolean
+  pip: boolean
+  playing: boolean
+  quality: string
+  speed: number
+  volume: number
+  ratio: string
+  download: string
+  poster: string
+}
+
+declare global {
+  interface Window {
+    Plyr: {
+      new (selector: string | Element, options?: PlyrOptions): PlyrInstance
+    }
+  }
+}
 
 export default function WatchPage() {
   const params = useParams()
   const id = params.id as string
   const [movie, setMovie] = useState<Movie | null>(null)
-  const [loading, setLoading] = useState(true) // For initial movie data fetch
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [plyrLoaded, setPlyrLoaded] = useState(false)
+  const [isBuffering, setIsBuffering] = useState(true)
 
   const videoRef = useRef<HTMLVideoElement>(null)
+  const plyrRef = useRef<PlyrInstance | null>(null)
   const [currentQuality, setCurrentQuality] = useState<"480p" | "720p" | "1080p">("720p")
-  const [videoSrc, setVideoSrc] = useState<string | null>(null)
 
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [isMuted, setIsMuted] = useState(false)
-  const [volume, setVolume] = useState(1) // 0 to 1
-  const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
-  const [isFullScreen, setIsFullScreen] = useState(false)
-  const [isBuffering, setIsBuffering] = useState(true) // For video buffering state
-  const [showSettingsMenu, setShowSettingsMenu] = useState(false) // For quality/speed menu
-  const [playbackSpeed, setPlaybackSpeed] = useState(1) // For playback speed control
+  // Load Plyr CSS and JS
+  useEffect(() => {
+    const loadPlyr = async () => {
+      // Load Plyr CSS
+      const cssLink = document.createElement("link")
+      cssLink.rel = "stylesheet"
+      cssLink.href = "https://cdnjs.cloudflare.com/ajax/libs/plyr/3.7.8/plyr.css"
+      document.head.appendChild(cssLink)
+
+      // Load Plyr JS
+      const script = document.createElement("script")
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/plyr/3.7.8/plyr.min.js"
+      script.onload = () => setPlyrLoaded(true)
+      document.head.appendChild(script)
+
+      return () => {
+        document.head.removeChild(cssLink)
+        document.head.removeChild(script)
+      }
+    }
+
+    loadPlyr()
+  }, [])
 
   // Fetch movie data
   useEffect(() => {
@@ -48,8 +153,6 @@ export default function WatchPage() {
         if (!response.ok) throw new Error("Movie not found")
         const movieData: Movie = await response.json()
         setMovie(movieData)
-        // Set initial video source to 720p
-        setVideoSrc(movieData.video_link_720p)
         setCurrentQuality("720p")
       } catch (err) {
         setError("Failed to fetch movie details.")
@@ -64,140 +167,152 @@ export default function WatchPage() {
     }
   }, [id])
 
-  // Handle fullscreen change events (e.g., user pressing ESC)
+  // Initialize Plyr when both movie data and Plyr are loaded
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullScreen(document.fullscreenElement != null)
-    }
+    if (movie && plyrLoaded && videoRef.current && !plyrRef.current) {
+      // Get available qualities
+      const availableQualities = []
+      const sources = []
 
-    document.addEventListener("fullscreenchange", handleFullscreenChange)
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange)
-  }, [])
+      if (movie.video_link_480p) {
+        availableQualities.push("480p")
+        sources.push({
+          src: movie.video_link_480p,
+          type: "video/mp4",
+          size: "480"
+        })
+      }
+      if (movie.video_link_720p) {
+        availableQualities.push("720p")
+        sources.push({
+          src: movie.video_link_720p,
+          type: "video/mp4",
+          size: "720"
+        })
+      }
+      if (movie.video_link_1080p) {
+        availableQualities.push("1080p")
+        sources.push({
+          src: movie.video_link_1080p,
+          type: "video/mp4",
+          size: "1080"
+        })
+      }
 
-  // Update video source when quality changes
-  useEffect(() => {
-    if (movie) {
-      const prevTime = videoRef.current?.currentTime || 0
-      const prevPlaying = !videoRef.current?.paused
-
-      let newSrc = ""
-      if (currentQuality === "480p") newSrc = movie.video_link_480p
-      else if (currentQuality === "720p") newSrc = movie.video_link_720p
-      else if (currentQuality === "1080p") newSrc = movie.video_link_1080p
-
-      setVideoSrc(newSrc)
-
-      // Load new source and maintain playback state/time
-      if (videoRef.current) {
-        videoRef.current.load()
-        videoRef.current.currentTime = prevTime
-        if (prevPlaying) {
-          videoRef.current.play().catch((e) => console.error("Autoplay prevented:", e))
+      const plyrOptions: PlyrOptions = {
+        controls: [
+          "play-large",
+          "play",
+          "progress",
+          "current-time",
+          "mute",
+          "volume",
+          "captions",
+          "settings",
+          "pip",
+          "airplay",
+          "fullscreen"
+        ],
+        settings: ["captions", "quality", "speed"],
+        quality: {
+          default: "720",
+          options: sources.map(s => s.size || "720"),
+          forced: true,
+          onChange: (quality: string) => {
+            const qualityMap: { [key: string]: "480p" | "720p" | "1080p" } = {
+              "480": "480p",
+              "720": "720p",
+              "1080": "1080p"
+            }
+            setCurrentQuality(qualityMap[quality] || "720p")
+          }
+        },
+        speed: {
+          selected: 1,
+          options: [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
+        },
+        autoplay: true,
+        muted: false,
+        volume: 1,
+        clickToPlay: true,
+        hideControls: true,
+        resetOnEnd: false,
+        keyboard: {
+          focused: true,
+          global: true
+        },
+        tooltips: {
+          controls: true,
+          seek: true
+        },
+        captions: {
+          active: false,
+          language: "en"
+        },
+        fullscreen: {
+          enabled: true,
+          fallback: true,
+          iosNative: true
+        },
+        pip: {
+          enabled: true
         }
       }
-    }
-  }, [currentQuality, movie])
 
-  // Video player controls
-  const togglePlayPause = useCallback(() => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause()
-      } else {
-        videoRef.current.play().catch((e) => console.error("Play prevented:", e))
+      // Initialize Plyr
+      plyrRef.current = new window.Plyr(videoRef.current, plyrOptions)
+
+      // Set video source
+      plyrRef.current.source = {
+        type: "video",
+        sources: sources
       }
-      setIsPlaying(!isPlaying)
-    }
-  }, [isPlaying])
 
-  const toggleMute = useCallback(() => {
-    if (videoRef.current) {
-      videoRef.current.muted = !isMuted
-      setIsMuted(!isMuted)
-    }
-  }, [isMuted])
+      // Add event listeners
+      plyrRef.current.on("loadedmetadata", () => {
+        setIsBuffering(false)
+      })
 
-  const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newVolume = Number(e.target.value)
-    if (videoRef.current) {
-      videoRef.current.volume = newVolume
-      setVolume(newVolume)
-      setIsMuted(newVolume === 0)
-    }
-  }, [])
+      plyrRef.current.on("waiting", () => {
+        setIsBuffering(true)
+      })
 
-  const handleTimeUpdate = useCallback(() => {
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime)
-    }
-  }, [])
+      plyrRef.current.on("playing", () => {
+        setIsBuffering(false)
+      })
 
-  const handleLoadedMetadata = useCallback(() => {
-    if (videoRef.current) {
-      setDuration(videoRef.current.duration)
-      setIsBuffering(false) // Video metadata loaded, stop initial buffering indicator
-      // Autoplay on load, but handle browser restrictions
-      videoRef.current.play().catch((e) => console.error("Autoplay prevented on metadata load:", e))
-      setIsPlaying(true)
-    }
-  }, [])
+      plyrRef.current.on("seeking", () => {
+        setIsBuffering(true)
+      })
 
-  const handleProgressChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = Number(e.target.value)
-      setCurrentTime(Number(e.target.value))
-    }
-  }, [])
+      plyrRef.current.on("seeked", () => {
+        setIsBuffering(false)
+      })
 
-  const toggleFullScreen = useCallback(() => {
-    if (videoRef.current) {
-      if (!document.fullscreenElement) {
-        videoRef.current.requestFullscreen().catch((e) => console.error("Fullscreen failed:", e))
-        setIsFullScreen(true)
-      } else {
-        document.exitFullscreen()
-        setIsFullScreen(false)
+      plyrRef.current.on("qualitychange", (event) => {
+        const quality = event.detail.quality
+        const qualityMap: { [key: string]: "480p" | "720p" | "1080p" } = {
+          "480": "480p",
+          "720": "720p",
+          "1080": "1080p"
+        }
+        setCurrentQuality(qualityMap[quality] || "720p")
+      })
+
+      plyrRef.current.on("error", (event) => {
+        console.error("Plyr error:", event.detail)
+        setError("Video playback error occurred.")
+      })
+    }
+
+    // Cleanup function
+    return () => {
+      if (plyrRef.current) {
+        plyrRef.current.destroy()
+        plyrRef.current = null
       }
     }
-  }, [])
-
-  const handlePlaybackSpeedChange = useCallback((speed: number) => {
-    if (videoRef.current) {
-      videoRef.current.playbackRate = speed
-      setPlaybackSpeed(speed)
-      setShowSettingsMenu(false)
-    }
-  }, [])
-
-  const togglePictureInPicture = useCallback(() => {
-    if (videoRef.current) {
-      if (document.pictureInPictureElement) {
-        document.exitPictureInPicture().catch((e) => console.error("Exit PiP failed:", e))
-      } else {
-        videoRef.current.requestPictureInPicture().catch((e) => console.error("Enter PiP failed:", e))
-      }
-    }
-  }, [])
-
-  // Handle video buffering events
-  const handleWaiting = useCallback(() => setIsBuffering(true), [])
-  const handlePlaying = useCallback(() => setIsBuffering(false), [])
-  const handleSeeking = useCallback(() => setIsBuffering(true), [])
-  const handleSeeked = useCallback(() => setIsBuffering(false), [])
-
-  // Format time for display
-  const formatTime = (time: number) => {
-    const minutes = Math.floor(time / 60)
-    const seconds = Math.floor(time % 60)
-    return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
-  }
-
-  const playbackSpeeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
-  const availableQualities = [
-    movie?.video_link_480p && "480p",
-    movie?.video_link_720p && "720p",
-    movie?.video_link_1080p && "1080p",
-  ].filter(Boolean) as ("480p" | "720p" | "1080p")[]
+  }, [movie, plyrLoaded])
 
   if (loading) {
     return (
@@ -245,157 +360,80 @@ export default function WatchPage() {
       {/* Video Player Container */}
       <div className="w-full max-w-4xl bg-gray-900 rounded-lg shadow-lg overflow-hidden">
         <div className="relative w-full aspect-video bg-black">
+          {/* Plyr Video Player */}
           <video
             ref={videoRef}
-            src={videoSrc || undefined}
-            autoPlay // Autoplay as requested
-            onPlay={handlePlaying}
-            onPause={togglePlayPause} // Use togglePlayPause to update state
-            onTimeUpdate={handleTimeUpdate}
-            onLoadedMetadata={handleLoadedMetadata}
-            onEnded={() => setIsPlaying(false)}
-            onError={(e) => console.error("Video error:", e.currentTarget.error)}
-            onWaiting={handleWaiting}
-            onPlaying={handlePlaying}
-            onSeeking={handleSeeking}
-            onSeeked={handleSeeked}
-            className="w-full h-full object-contain" // Use object-contain to prevent cropping
-            playsInline // Add playsInline for better mobile compatibility (especially iOS)
-            // Removed 'controls' attribute to rely fully on custom controls for Plyr-like experience
+            className="w-full h-full"
+            playsInline
+            crossOrigin="anonymous"
           />
 
           {/* Loading Spinner Overlay */}
-          {isBuffering && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-10">
+          {(isBuffering || !plyrLoaded) && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-50">
               <Loader2 className="h-12 w-12 animate-spin text-blue-500" />
             </div>
           )}
 
-          {/* Custom Controls Overlay */}
-          <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/70 to-transparent opacity-0 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-300">
-            <div className="p-4">
-              {/* Progress Bar */}
-              <input
-                type="range"
-                min="0"
-                max={duration}
-                value={currentTime}
-                onChange={handleProgressChange}
-                className="w-full h-2 bg-blue-600 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md"
-                aria-label="Video progress"
-              />
-              <div className="flex justify-between items-center mt-2 text-sm text-gray-300">
-                <span>{formatTime(currentTime)}</span>
-                <span>{formatTime(duration)}</span>
-              </div>
-
-              {/* Main Controls */}
-              <div className="flex items-center justify-between mt-4">
-                <div className="flex items-center space-x-4">
-                  <button
-                    onClick={togglePlayPause}
-                    className="p-2 rounded-full hover:bg-gray-700 transition-colors"
-                    aria-label={isPlaying ? "Pause" : "Play"}
-                  >
-                    {isPlaying ? <Pause className="h-6 w-6 text-white" /> : <Play className="h-6 w-6 text-white" />}
-                  </button>
-                  <button
-                    onClick={toggleMute}
-                    className="p-2 rounded-full hover:bg-gray-700 transition-colors"
-                    aria-label={isMuted || volume === 0 ? "Unmute" : "Mute"}
-                  >
-                    {isMuted || volume === 0 ? (
-                      <VolumeX className="h-6 w-6 text-white" />
-                    ) : (
-                      <Volume2 className="h-6 w-6 text-white" />
-                    )}
-                  </button>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={volume}
-                    onChange={handleVolumeChange}
-                    className="w-24 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
-                    aria-label="Volume control"
-                  />
-                </div>
-
-                <div className="flex items-center space-x-4 relative">
-                  {/* Settings Menu Trigger */}
-                  <button
-                    onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-                    className="p-2 rounded-full hover:bg-gray-700 transition-colors"
-                    aria-label="Settings"
-                    aria-expanded={showSettingsMenu}
-                  >
-                    <Settings className="h-6 w-6 text-white" />
-                  </button>
-
-                  {/* Settings Menu Dropdown */}
-                  {showSettingsMenu && (
-                    <div className="absolute bottom-full right-0 mb-2 w-40 bg-gray-800 rounded-lg shadow-lg p-2 text-sm z-20">
-                      <div className="font-semibold text-gray-300 px-2 py-1">Quality</div>
-                      {availableQualities.map((quality) => (
-                        <button
-                          key={quality}
-                          onClick={() => {
-                            setCurrentQuality(quality)
-                            setShowSettingsMenu(false)
-                          }}
-                          className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
-                            currentQuality === quality ? "bg-blue-600 text-white" : "text-gray-300"
-                          }`}
-                        >
-                          {quality}
-                        </button>
-                      ))}
-                      <div className="font-semibold text-gray-300 px-2 py-1 mt-2 border-t border-gray-700 pt-2">
-                        Playback Speed
-                      </div>
-                      {playbackSpeeds.map((speed) => (
-                        <button
-                          key={speed}
-                          onClick={() => handlePlaybackSpeedChange(speed)}
-                          className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-700 transition-colors ${
-                            playbackSpeed === speed ? "bg-blue-600 text-white" : "text-gray-300"
-                          }`}
-                        >
-                          {speed === 1 ? "Normal" : `${speed}x`}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Picture-in-Picture Button */}
-                  {document.pictureInPictureEnabled && (
-                    <button
-                      onClick={togglePictureInPicture}
-                      className="p-2 rounded-full hover:bg-gray-700 transition-colors"
-                      aria-label="Toggle Picture-in-Picture"
-                    >
-                      <PictureInPicture2 className="h-6 w-6 text-white" />
-                    </button>
-                  )}
-
-                  {/* Fullscreen Button */}
-                  <button
-                    onClick={toggleFullScreen}
-                    className="p-2 rounded-full hover:bg-gray-700 transition-colors"
-                    aria-label={isFullScreen ? "Exit Fullscreen" : "Enter Fullscreen"}
-                  >
-                    {isFullScreen ? (
-                      <Minimize className="h-6 w-6 text-white" />
-                    ) : (
-                      <Maximize className="h-6 w-6 text-white" />
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          {/* Custom Plyr Styling */}
+          <style jsx>{`
+            :global(.plyr) {
+              border-radius: 0;
+            }
+            :global(.plyr--video) {
+              background: black;
+            }
+            :global(.plyr__controls) {
+              background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+              color: white;
+            }
+            :global(.plyr__control) {
+              color: white;
+            }
+            :global(.plyr__control:hover) {
+              background: rgba(255, 255, 255, 0.1);
+            }
+            :global(.plyr__control--pressed) {
+              background: rgba(59, 130, 246, 0.8);
+            }
+            :global(.plyr__progress__buffer) {
+              background: rgba(255, 255, 255, 0.2);
+            }
+            :global(.plyr__progress__played) {
+              background: #3b82f6;
+            }
+            :global(.plyr__volume__input) {
+              background: rgba(255, 255, 255, 0.2);
+            }
+            :global(.plyr__volume__input::-webkit-slider-thumb) {
+              background: #3b82f6;
+            }
+            :global(.plyr__menu) {
+              background: rgba(0, 0, 0, 0.9);
+              border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+            :global(.plyr__menu__item) {
+              color: white;
+            }
+            :global(.plyr__menu__item:hover) {
+              background: rgba(59, 130, 246, 0.8);
+            }
+            :global(.plyr__menu__item--active) {
+              background: rgba(59, 130, 246, 0.6);
+            }
+            :global(.plyr__tooltip) {
+              background: rgba(0, 0, 0, 0.9);
+              color: white;
+            }
+          `}</style>
         </div>
+      </div>
+
+      {/* Quality Indicator */}
+      <div className="mt-4 text-center">
+        <span className="text-sm text-gray-400">
+          Current Quality: <span className="text-blue-400 font-medium">{currentQuality}</span>
+        </span>
       </div>
     </div>
   )
