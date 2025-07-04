@@ -1,313 +1,150 @@
-'use client'
+"use client"
 
-import React, { useState, useEffect, useRef } from 'react'
-import { useParams } from 'next/navigation'
-import Link from 'next/link'
-// import { useMovies } from '../../context/MovieContext' // Update this path to match your project structure
+import { useEffect, useState, useRef, useCallback } from "react"
+import { useParams } from "next/navigation"
+import Link from "next/link"
+import {
+  ArrowLeft,
+} from "lucide-react"
+import type { Movie } from "@/contexts/MovieContext"
 
-const Watch = () => {
-  const { id } = useParams()
-  // const { fetchMovie } = useMovies() // Uncomment when MovieContext is available
-  const [movie, setMovie] = useState(null)
+export default function WatchPage() {
+  const params = useParams()
+  const id = params.id as string
+  const [movie, setMovie] = useState<Movie | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [currentQuality, setCurrentQuality] = useState('720p')
-  const playerRef = useRef(null)
-  const clapprPlayerRef = useRef(null)
-
-  // Temporary mock function - replace with your actual fetchMovie function
-  const fetchMovie = async (movieId) => {
-    // Replace this with your actual API call
-    try {
-      const response = await fetch(`/api/movies/${movieId}`)
-      if (!response.ok) {
-        throw new Error('Failed to fetch movie')
-      }
-      return await response.json()
-    } catch (error) {
-      throw new Error('Movie not found')
-    }
-  }
+  const [error, setError] = useState<string | null>(null)
+  const [currentQuality, setCurrentQuality] = useState<"720p" | "1080p">("720p")
+  const [videoSrc, setVideoSrc] = useState<string | null>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
-    const loadMovie = async () => {
+    const fetchMovie = async (movieId: string) => {
       try {
-        setLoading(true)
-        const movieData = await fetchMovie(id)
+        const response = await fetch(`https://web-production-6321.up.railway.app/movies/${movieId}`)
+        if (!response.ok) throw new Error("Movie not found")
+        const movieData: Movie = await response.json()
         setMovie(movieData)
-        
-        // Set initial quality based on available options
-        if (movieData.video_link_1080p) {
-          setCurrentQuality('1080p')
-        } else if (movieData.video_link_720p) {
-          setCurrentQuality('720p')
-        }
+        setVideoSrc(movieData.video_link_720p) // default to 720p
+        setCurrentQuality("720p")
       } catch (err) {
-        setError(err.message)
+        setError("Failed to fetch movie details.")
+        console.error(err)
       } finally {
         setLoading(false)
       }
     }
 
-    loadMovie()
-  }, [id, fetchMovie])
+    if (id) fetchMovie(id)
+  }, [id])
 
   useEffect(() => {
-    // Load Clappr dynamically
-    const loadClappr = async () => {
-      if (typeof window !== 'undefined' && !window.Clappr) {
-        // Create script element
-        const script = document.createElement('script')
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/clappr/0.4.7/clappr.min.js'
-        script.async = true
-        
-        // Create link element for CSS
-        const link = document.createElement('link')
-        link.rel = 'stylesheet'
-        link.href = 'https://cdnjs.cloudflare.com/ajax/libs/clappr/0.4.7/clappr.min.css'
-        
-        // Append to head
-        document.head.appendChild(link)
-        document.head.appendChild(script)
-        
-        // Wait for script to load
-        script.onload = () => {
-          if (movie && playerRef.current) {
-            initializeClapprPlayer()
-          }
-        }
-      } else if (movie && playerRef.current && window.Clappr) {
-        initializeClapprPlayer()
+    if (!movie) return
+
+    const prevTime = videoRef.current?.currentTime || 0
+    const wasPlaying = !videoRef.current?.paused
+
+    const newSrc =
+      currentQuality === "1080p"
+        ? movie.video_link_1080p
+        : movie.video_link_720p
+
+    setVideoSrc(newSrc)
+
+    if (videoRef.current) {
+      videoRef.current.src = newSrc
+      videoRef.current.load()
+      videoRef.current.currentTime = prevTime
+      if (wasPlaying) {
+        videoRef.current.play().catch((e) => console.error("Autoplay prevented:", e))
       }
     }
-
-    if (movie) {
-      loadClappr()
-    }
-
-    return () => {
-      if (clapprPlayerRef.current) {
-        clapprPlayerRef.current.destroy()
-      }
-    }
-  }, [movie, currentQuality])
-
-  const initializeClapprPlayer = () => {
-    // Destroy existing player if it exists
-    if (clapprPlayerRef.current) {
-      clapprPlayerRef.current.destroy()
-    }
-
-    // Check if Clappr is available
-    if (typeof window.Clappr === 'undefined') {
-      console.error('Clappr is not loaded')
-      return
-    }
-
-    const videoSrc = getCurrentVideoSource()
-    if (!videoSrc) {
-      console.error('No video source available')
-      return
-    }
-
-    const playerOptions = {
-      source: videoSrc,
-      poster: movie.thumbnail_url,
-      width: '100%',
-      height: '100%',
-      autoPlay: false,
-      plugins: ['MediaControl', 'Poster'],
-      mediacontrol: {
-        seekbar: '#E50914',
-        buttons: '#FFF'
-      },
-      playbackNotSupportedMessage: 'Your browser does not support the playback of this video.',
-      exitFullscreenOnEnd: true,
-      persistConfig: false
-    }
-
-    try {
-      clapprPlayerRef.current = new window.Clappr.Player(playerOptions)
-      clapprPlayerRef.current.attachTo(playerRef.current)
-    } catch (error) {
-      console.error('Error initializing Clappr player:', error)
-      setError('Failed to initialize video player')
-    }
-  }
-
-  const getCurrentVideoSource = () => {
-    if (!movie) return null
-    
-    switch (currentQuality) {
-      case '1080p':
-        return movie.video_link_1080p
-      case '720p':
-        return movie.video_link_720p
-      default:
-        return movie.video_link_720p || movie.video_link_1080p
-    }
-  }
-
-  const handleQualityChange = (quality) => {
-    setCurrentQuality(quality)
-  }
-
-  const getAvailableQualities = () => {
-    if (!movie) return []
-    
-    const qualities = []
-    if (movie.video_link_1080p) qualities.push('1080p')
-    if (movie.video_link_720p) qualities.push('720p')
-    return qualities
-  }
+  }, [currentQuality, movie])
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-filmzi-accent"></div>
+      <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        <span>Loading...</span>
       </div>
     )
   }
 
-  if (error) {
+  if (error || !movie) {
     return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-filmzi-accent mb-4">Error</h2>
-          <p className="text-gray-400">{error}</p>
-          <Link href="/" className="text-filmzi-accent hover:text-filmzi-hover mt-4 inline-block">
-            Return to Home
-          </Link>
-        </div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-black text-white text-center p-4">
+        <h1 className="text-2xl font-bold mb-2">Error</h1>
+        <p className="mb-4">{error || "Movie not found."}</p>
+        <Link
+          href="/home"
+          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg"
+        >
+          Go Home
+        </Link>
       </div>
     )
   }
-
-  if (!movie) {
-    return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-filmzi-accent mb-4">Movie Not Found</h2>
-          <Link href="/" className="text-filmzi-accent hover:text-filmzi-hover">
-            Return to Home
-          </Link>
-        </div>
-      </div>
-    )
-  }
-
-  const availableQualities = getAvailableQualities()
 
   return (
-    <div className="min-h-screen bg-filmzi-bg">
-      <div className="container mx-auto px-4 py-8">
-        {/* Back Button */}
-        <div className="mb-6">
-          <Link 
-            href={`/movie/${movie.id}`}
-            className="inline-flex items-center text-filmzi-accent hover:text-filmzi-hover transition-colors"
+    <div className="min-h-screen bg-black text-white flex flex-col items-center p-4 sm:p-6 lg:p-8">
+      {/* Back Button */}
+      <div className="w-full max-w-6xl mb-6">
+        <Link
+          href={`/movie/${movie.id}`}
+          className="inline-flex items-center space-x-2 text-blue-400 hover:text-blue-300"
+        >
+          <ArrowLeft className="h-5 w-5" />
+          <span>Back to Movie Details</span>
+        </Link>
+      </div>
+
+      {/* Movie Title */}
+      <h1 className="text-3xl md:text-4xl font-bold text-center mb-6">
+        {movie.title.split("(")[0].trim()}
+      </h1>
+
+      {/* Native HTML5 Video Player */}
+      <div className="w-full max-w-4xl bg-gray-900 rounded-lg overflow-hidden mb-4">
+        <video
+          ref={videoRef}
+          src={videoSrc || undefined}
+          className="w-full h-full"
+          controls
+          autoPlay
+          poster={movie.thumbnail_url}
+          crossOrigin="anonymous"
+          playsInline
+        >
+          Your browser does not support the video tag.
+        </video>
+      </div>
+
+      {/* Quality Selection */}
+      <div className="flex space-x-4">
+        {movie.video_link_720p && (
+          <button
+            onClick={() => setCurrentQuality("720p")}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              currentQuality === "720p"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+            }`}
           >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to Movie Details
-          </Link>
-        </div>
-
-        {/* Movie Title */}
-        <h1 className="text-3xl font-bold text-filmzi-text mb-4">{movie.title}</h1>
-
-        {/* Quality Selector */}
-        {availableQualities.length > 1 && (
-          <div className="mb-4">
-            <div className="flex items-center space-x-2">
-              <span className="text-gray-300 text-sm">Quality:</span>
-              {availableQualities.map((quality) => (
-                <button
-                  key={quality}
-                  onClick={() => handleQualityChange(quality)}
-                  className={`px-3 py-1 rounded-full text-sm transition-colors ${
-                    currentQuality === quality
-                      ? 'bg-filmzi-accent text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                  }`}
-                >
-                  {quality}
-                </button>
-              ))}
-            </div>
-          </div>
+            720p
+          </button>
         )}
-
-        {/* Video Player */}
-        <div className="mb-8">
-          <div className="aspect-video bg-black rounded-lg overflow-hidden">
-            <div 
-              ref={playerRef}
-              className="w-full h-full"
-              style={{ minHeight: '400px' }}
-            />
-          </div>
-        </div>
-
-        {/* Movie Info */}
-        <div className="bg-gray-900 rounded-lg p-6">
-          <h2 className="text-2xl font-semibold text-filmzi-text mb-4">About This Movie</h2>
-          <p className="text-gray-300 text-lg leading-relaxed mb-6">{movie.details}</p>
-          
-          <div className="flex items-center space-x-4">
-            {movie.is_hero && (
-              <span className="bg-filmzi-accent text-white px-3 py-1 rounded-full text-sm">
-                Featured
-              </span>
-            )}
-            {movie.is_latest && (
-              <span className="bg-green-600 text-white px-3 py-1 rounded-full text-sm">
-                Latest
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Quality Information */}
-        <div className="mt-8 bg-gray-900 rounded-lg p-6">
-          <h3 className="text-xl font-semibold text-filmzi-text mb-4">Available Quality Options</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {movie.video_link_720p && (
-              <div className={`bg-gray-800 p-4 rounded-lg text-center transition-colors ${
-                currentQuality === '720p' ? 'border-2 border-filmzi-accent' : ''
-              }`}>
-                <h4 className={`font-semibold mb-2 ${
-                  currentQuality === '720p' ? 'text-filmzi-accent' : 'text-filmzi-text'
-                }`}>
-                  720p HD
-                </h4>
-                <p className="text-gray-400 text-sm">
-                  High Definition Quality
-                  {currentQuality === '720p' && ' (Currently Playing)'}
-                </p>
-              </div>
-            )}
-            {movie.video_link_1080p && (
-              <div className={`bg-gray-800 p-4 rounded-lg text-center transition-colors ${
-                currentQuality === '1080p' ? 'border-2 border-filmzi-accent' : ''
-              }`}>
-                <h4 className={`font-semibold mb-2 ${
-                  currentQuality === '1080p' ? 'text-filmzi-accent' : 'text-filmzi-text'
-                }`}>
-                  1080p Full HD
-                </h4>
-                <p className="text-gray-400 text-sm">
-                  Full High Definition Quality
-                  {currentQuality === '1080p' && ' (Currently Playing)'}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
+        {movie.video_link_1080p && (
+          <button
+            onClick={() => setCurrentQuality("1080p")}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              currentQuality === "1080p"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+            }`}
+          >
+            1080p
+          </button>
+        )}
       </div>
     </div>
   )
 }
-
-export default Watch
