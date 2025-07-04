@@ -1,108 +1,15 @@
 "use client"
 
-import type React from "react"
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 import type { Movie } from "@/contexts/MovieContext"
 
-interface PlyrOptions {
-  controls?: string[]
-  settings?: string[]
-  quality?: {
-    default: string
-    options: string[]
-    forced: boolean
-    onChange: (quality: string) => void
-  }
-  speed?: {
-    selected: number
-    options: number[]
-  }
-  autoplay?: boolean
-  muted?: boolean
-  volume?: number
-  clickToPlay?: boolean
-  hideControls?: boolean
-  resetOnEnd?: boolean
-  keyboard?: {
-    focused: boolean
-    global: boolean
-  }
-  tooltips?: {
-    controls: boolean
-    seek: boolean
-  }
-  captions?: {
-    active: boolean
-    language: string
-  }
-  fullscreen?: {
-    enabled: boolean
-    fallback: boolean
-    iosNative: boolean
-  }
-  pip?: {
-    enabled: boolean
-  }
-}
-
-interface PlyrInstance {
-  play: () => Promise<void>
-  pause: () => void
-  stop: () => void
-  restart: () => void
-  rewind: (seekTime?: number) => void
-  forward: (seekTime?: number) => void
-  increaseVolume: (step?: number) => void
-  decreaseVolume: (step?: number) => void
-  togglePlay: () => Promise<void>
-  toggleMute: () => void
-  toggleCaptions: () => void
-  toggleFullscreen: () => void
-  airplay: () => void
-  pip: () => void
-  on: (event: string, callback: (event: any) => void) => void
-  off: (event: string, callback: (event: any) => void) => void
-  once: (event: string, callback: (event: any) => void) => void
-  destroy: () => void
-  source: {
-    type: string
-    sources: Array<{
-      src: string
-      type: string
-      size?: string
-    }>
-  }
-  currentTime: number
-  duration: number
-  ended: boolean
-  fullscreen: {
-    active: boolean
-    enabled: boolean
-    enter: () => void
-    exit: () => void
-    toggle: () => void
-  }
-  loop: boolean
-  muted: boolean
-  paused: boolean
-  pip: boolean
-  playing: boolean
-  quality: string
-  speed: number
-  volume: number
-  ratio: string
-  download: string
-  poster: string
-}
-
 declare global {
   interface Window {
-    Plyr: {
-      new (selector: string | Element, options?: PlyrOptions): PlyrInstance
-    }
+    Clappr: any
+    ClapprLevelSelector: any
   }
 }
 
@@ -112,199 +19,138 @@ export default function WatchPage() {
   const [movie, setMovie] = useState<Movie | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [plyrLoaded, setPlyrLoaded] = useState(false)
-
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const plyrRef = useRef<PlyrInstance | null>(null)
-  const [currentQuality, setCurrentQuality] = useState<"720p" | "1080p">("720p")
+  const playerContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const loadPlyr = async () => {
-      const cssLink = document.createElement("link")
-      cssLink.rel = "stylesheet"
-      cssLink.href = "https://cdn.plyr.io/3.7.8/plyr.css"
-      document.head.appendChild(cssLink)
-
-      const script = document.createElement("script")
-      script.src = "https://cdn.plyr.io/3.7.8/plyr.polyfilled.js" // Updated here
-      script.onload = () => setPlyrLoaded(true)
-      document.head.appendChild(script)
-
-      return () => {
-        document.head.removeChild(cssLink)
-        document.head.removeChild(script)
-      }
-    }
-
-    loadPlyr()
-  }, [])
-
-  useEffect(() => {
-    const fetchMovie = async (movieId: string) => {
+    const fetchMovie = async () => {
       setLoading(true)
       try {
-        const response = await fetch(`https://web-production-6321.up.railway.app/movies/${movieId}`)
-        if (!response.ok) throw new Error("Movie not found")
-        const movieData: Movie = await response.json()
-        setMovie(movieData)
-        setCurrentQuality("720p")
+        const res = await fetch(`https://web-production-6321.up.railway.app/movies/${id}`)
+        if (!res.ok) throw new Error("Movie not found")
+        const data: Movie = await res.json()
+        setMovie(data)
       } catch (err) {
-        setError("Failed to fetch movie details.")
+        setError("Failed to load movie.")
         console.error(err)
       } finally {
         setLoading(false)
       }
     }
 
-    if (id) {
-      fetchMovie(id)
-    }
+    if (id) fetchMovie()
   }, [id])
 
   useEffect(() => {
-    if (movie && plyrLoaded && videoRef.current && !plyrRef.current) {
-      const availableQualities = []
-      const sources = []
+    if (!movie || !playerContainerRef.current) return
 
-      if (movie.video_link_720p) {
-        availableQualities.push("720p")
-        sources.push({
-          src: movie.video_link_720p,
-          type: "video/mp4",
-          size: "720"
-        })
-      }
-      if (movie.video_link_1080p) {
-        availableQualities.push("1080p")
-        sources.push({
-          src: movie.video_link_1080p,
-          type: "video/mp4",
-          size: "1080"
-        })
-      }
+    const loadClappr = async () => {
+      // Load Clappr core
+      const script = document.createElement("script")
+      script.src = "https://cdn.jsdelivr.net/npm/clappr@latest/dist/clappr.min.js"
+      script.async = true
+      document.body.appendChild(script)
 
-      const plyrOptions: PlyrOptions = {
-        controls: [
-          "play-large", "play", "progress", "current-time", "mute",
-          "volume", "captions", "settings", "pip", "airplay", "fullscreen"
-        ],
-        settings: ["captions", "quality", "speed"],
-        quality: {
-          default: "720",
-          options: sources.map(s => s.size || "720"),
-          forced: true,
-          onChange: (quality: string) => {
-            const qualityMap: { [key: string]: "720p" | "1080p" } = {
-              "720": "720p",
-              "1080": "1080p"
-            }
-            setCurrentQuality(qualityMap[quality] || "720p")
+      // Load LevelSelector plugin (for quality)
+      const levelScript = document.createElement("script")
+      levelScript.src = "https://cdn.jsdelivr.net/npm/clappr-level-selector@latest/dist/level-selector.min.js"
+      levelScript.async = true
+      document.body.appendChild(levelScript)
+
+      script.onload = () => {
+        levelScript.onload = () => {
+          const sources = []
+
+          if (movie.video_link_720p) {
+            sources.push({
+              source: movie.video_link_720p,
+              mimeType: "video/mp4",
+              label: "720p",
+              default: true,
+            })
           }
-        },
-        speed: {
-          selected: 1,
-          options: [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
-        },
-        autoplay: true,
-        muted: false,
-        volume: 1,
-        clickToPlay: true,
-        hideControls: true,
-        resetOnEnd: false,
-        keyboard: { focused: true, global: true },
-        tooltips: { controls: true, seek: true },
-        captions: { active: false, language: "en" },
-        fullscreen: { enabled: true, fallback: true, iosNative: true },
-        pip: { enabled: true }
-      }
 
-      plyrRef.current = new window.Plyr(videoRef.current, plyrOptions)
-      plyrRef.current.source = { type: "video", sources }
+          if (movie.video_link_1080p) {
+            sources.push({
+              source: movie.video_link_1080p,
+              mimeType: "video/mp4",
+              label: "1080p",
+            })
+          }
 
-      plyrRef.current.on("qualitychange", (event) => {
-        const quality = event.detail.quality
-        const qualityMap: { [key: string]: "720p" | "1080p" } = {
-          "720": "720p",
-          "1080": "1080p"
+          new window.Clappr.Player({
+            parentId: "#player-container",
+            poster: movie.thumbnail_url,
+            autoPlay: true,
+            width: "100%",
+            height: "100%",
+            playback: {
+              controls: true,
+            },
+            source: sources[0].source,
+            plugins: [window.ClapprLevelSelector],
+            levelSelectorConfig: {
+              title: "Quality",
+              labels: sources.reduce((acc: any, src, idx) => {
+                acc[idx] = src.label
+                return acc
+              }, {}),
+            },
+            sources,
+          })
         }
-        setCurrentQuality(qualityMap[quality] || "720p")
-      })
+      }
 
-      plyrRef.current.on("error", (event) => {
-        console.error("Plyr error:", event.detail)
-        setError("Video playback error occurred.")
-      })
-    }
-
-    return () => {
-      if (plyrRef.current) {
-        plyrRef.current.destroy()
-        plyrRef.current = null
+      return () => {
+        document.body.removeChild(script)
+        document.body.removeChild(levelScript)
       }
     }
-  }, [movie, plyrLoaded])
+
+    loadClappr()
+  }, [movie])
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white">
-        <p className="text-gray-400">Loading movie...</p>
+        <p>Loading movie...</p>
       </div>
     )
   }
 
   if (error || !movie) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-black text-white p-4">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">Error</h1>
-          <p className="text-gray-400 mb-4">{error || "Movie details could not be loaded."}</p>
-          <Link
-            href="/home"
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
-          >
-            Go Home
-          </Link>
-        </div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-black text-white">
+        <h1 className="text-2xl font-bold">Error</h1>
+        <p className="text-gray-400 mb-4">{error || "Movie not found."}</p>
+        <Link href="/home" className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded">
+          Go Home
+        </Link>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col items-center p-4 sm:p-6 lg:p-8">
-      <div className="w-full max-w-6xl mb-6">
+    <div className="min-h-screen bg-black text-white p-4 flex flex-col items-center">
+      {/* Back */}
+      <div className="w-full max-w-6xl mb-4">
         <Link
           href={`/movie/${movie.id}`}
-          className="inline-flex items-center space-x-2 text-blue-400 hover:text-blue-300 transition-colors"
+          className="inline-flex items-center text-blue-400 hover:text-blue-300"
         >
-          <ArrowLeft className="h-5 w-5" />
-          <span>Back to Movie Details</span>
+          <ArrowLeft className="h-5 w-5 mr-2" />
+          <span>Back to Details</span>
         </Link>
       </div>
 
-      <h1 className="text-3xl md:text-4xl font-bold text-center mb-8 max-w-6xl w-full">
-        {movie.title.split("(")[0].trim()}
-      </h1>
+      {/* Title */}
+      <h1 className="text-3xl font-bold text-center mb-6">{movie.title.split("(")[0].trim()}</h1>
 
-      <div className="w-full max-w-4xl bg-gray-900 rounded-lg shadow-lg overflow-hidden">
-        <div className="relative w-full aspect-video bg-black">
-          <video
-            ref={videoRef}
-            id="player"
-            controls
-            playsInline
-            crossOrigin="anonymous"
-            referrerPolicy="no-referrer"
-            poster={movie.thumbnail_url}
-            className="w-full h-full"
-          />
-        </div>
-      </div>
-
-      <div className="mt-4 text-center">
-        <span className="text-sm text-gray-400">
-          Current Quality: <span className="text-blue-400 font-medium">{currentQuality}</span>
-        </span>
-      </div>
+      {/* Clappr Player */}
+      <div
+        id="player-container"
+        ref={playerContainerRef}
+        className="w-full max-w-4xl aspect-video bg-black rounded-lg overflow-hidden"
+      ></div>
     </div>
   )
 }
