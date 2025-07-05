@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import {
@@ -20,6 +20,7 @@ export default function WatchPage() {
   const params = useParams()
   const id = params.id as string
   const videoRef = useRef<HTMLVideoElement>(null)
+  const playerContainerRef = useRef<HTMLDivElement>(null)
 
   const [movie, setMovie] = useState<Movie | null>(null)
   const [loading, setLoading] = useState(true)
@@ -34,7 +35,6 @@ export default function WatchPage() {
   const [isFullScreen, setIsFullScreen] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showPoster, setShowPoster] = useState(true)
-  const [playbackSpeed, setPlaybackSpeed] = useState(1)
 
   useEffect(() => {
     const fetchMovie = async () => {
@@ -53,12 +53,18 @@ export default function WatchPage() {
     if (id) fetchMovie()
   }, [id])
 
-  const handlePlay = () => {
+  const handlePlay = async () => {
     if (!videoRef.current || !movie) return
     setVideoSrc(currentQuality === "1080p" ? movie.video_link_1080p : movie.video_link_720p)
     setShowPoster(false)
-    videoRef.current.play()
-    setIsPlaying(true)
+    setTimeout(async () => {
+      try {
+        await videoRef.current?.play()
+        setIsPlaying(true)
+      } catch (e) {
+        console.error("Autoplay error:", e)
+      }
+    }, 100)
   }
 
   const togglePlayPause = () => {
@@ -101,20 +107,42 @@ export default function WatchPage() {
   const formatTime = (t: number) =>
     `${Math.floor(t / 60).toString().padStart(2, "0")}:${Math.floor(t % 60).toString().padStart(2, "0")}`
 
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.playbackRate = playbackSpeed
-    }
-  }, [playbackSpeed])
-
   const cleanTitle = (title: string) => {
-    // Match everything up to the year and return like "Thunderbolts (2025) ✅"
     const match = title.match(/^(.*?\(\d{4}\))/)
-    return match ? `# ${match[1]} ✅` : `# ${title}`
+    return match ? match[1] : title
   }
 
-  if (loading) return <div className="min-h-screen bg-black text-white flex items-center justify-center">Loading...</div>
+  // Hide settings on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (playerContainerRef.current && !playerContainerRef.current.contains(e.target as Node)) {
+        setShowSettings(false)
+      }
+    }
+    document.addEventListener("click", handleClickOutside)
+    return () => document.removeEventListener("click", handleClickOutside)
+  }, [])
 
+  // Double tap fullscreen
+  useEffect(() => {
+    const player = playerContainerRef.current
+    if (!player) return
+
+    let lastTap = 0
+    const handleTap = () => {
+      const now = new Date().getTime()
+      const tapLength = now - lastTap
+      if (tapLength < 400 && tapLength > 0) {
+        toggleFullScreen()
+      }
+      lastTap = now
+    }
+
+    player.addEventListener("touchend", handleTap)
+    return () => player.removeEventListener("touchend", handleTap)
+  }, [])
+
+  if (loading) return <div className="min-h-screen bg-black text-white flex items-center justify-center">Loading...</div>
   if (error || !movie) return <div className="min-h-screen bg-black text-white flex items-center justify-center">{error}</div>
 
   return (
@@ -125,11 +153,11 @@ export default function WatchPage() {
         </Link>
         <h1 className="text-2xl md:text-3xl font-semibold mb-4">{cleanTitle(movie.title)}</h1>
 
-        <div className="relative bg-black aspect-video rounded-lg overflow-hidden">
+        <div ref={playerContainerRef} className="relative bg-black aspect-video rounded-lg overflow-hidden">
           <video
             ref={videoRef}
             className="w-full h-full"
-            src={showPoster ? undefined : videoSrc}
+            src={!showPoster ? videoSrc : undefined}
             muted={isMuted}
             onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
             onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
@@ -141,7 +169,7 @@ export default function WatchPage() {
           {showPoster && (
             <button
               onClick={handlePlay}
-              className="absolute inset-0 flex items-center justify-center bg-black/60 hover:bg-black/80"
+              className="absolute inset-0 flex items-center justify-center bg-black/60 hover:bg-black/80 transition"
             >
               <Play className="w-16 h-16 text-white" />
             </button>
@@ -180,7 +208,12 @@ export default function WatchPage() {
                 </div>
 
                 <div className="flex items-center space-x-3 relative">
-                  <button onClick={() => setShowSettings(!showSettings)}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation() // prevent outside click
+                      setShowSettings((prev) => !prev)
+                    }}
+                  >
                     <Settings className="w-6 h-6" />
                   </button>
                   {document.pictureInPictureEnabled && (
@@ -193,39 +226,24 @@ export default function WatchPage() {
                   </button>
 
                   {showSettings && (
-                    <div className="absolute bottom-full right-0 mb-2 bg-gray-800 rounded p-2 text-sm w-40">
-                      <div className="mb-2">
-                        <p className="text-gray-300 font-semibold mb-1">Quality</p>
-                        {["720p", "1080p"].map((q) => (
-                          <button
-                            key={q}
-                            onClick={() => {
-                              setCurrentQuality(q as "720p" | "1080p")
-                              setVideoSrc(q === "720p" ? movie.video_link_720p : movie.video_link_1080p)
-                              setShowSettings(false)
-                            }}
-                            className={`block w-full px-2 py-1 rounded hover:bg-gray-700 ${
-                              currentQuality === q ? "bg-blue-600 text-white" : "text-gray-300"
-                            }`}
-                          >
-                            {q}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="mt-2 border-t border-gray-600 pt-2">
-                        <p className="text-gray-300 font-semibold mb-1">Speed</p>
-                        {[0.5, 1, 1.5, 2].map((s) => (
-                          <button
-                            key={s}
-                            onClick={() => setPlaybackSpeed(s)}
-                            className={`block w-full px-2 py-1 rounded hover:bg-gray-700 ${
-                              playbackSpeed === s ? "bg-blue-600 text-white" : "text-gray-300"
-                            }`}
-                          >
-                            {s}x
-                          </button>
-                        ))}
-                      </div>
+                    <div className="absolute bottom-full right-0 mb-2 bg-gray-800 rounded p-2 text-sm w-40 z-20">
+                      <p className="text-gray-300 font-semibold mb-1">Quality</p>
+                      {["720p", "1080p"].map((q) => (
+                        <button
+                          key={q}
+                          onClick={() => {
+                            setCurrentQuality(q as "720p" | "1080p")
+                            setVideoSrc(q === "720p" ? movie.video_link_720p : movie.video_link_1080p)
+                            setShowSettings(false)
+                            setTimeout(() => videoRef.current?.play(), 100)
+                          }}
+                          className={`block w-full px-2 py-1 rounded hover:bg-gray-700 ${
+                            currentQuality === q ? "bg-blue-600 text-white" : "text-gray-300"
+                          }`}
+                        >
+                          {q}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
