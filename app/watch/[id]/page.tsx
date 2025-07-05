@@ -1,166 +1,245 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react" import { useParams } from "next/navigation" import Link from "next/link" import { ArrowLeft, Play, Pause, Volume2, VolumeX, Maximize, Minimize, Settings, PictureInPicture2, Loader2, } from "lucide-react" import type { Movie } from "@/contexts/MovieContext"
+import { useEffect, useRef, useState } from "react"
+import { useParams } from "next/navigation"
+import Link from "next/link"
+import {
+  ArrowLeft,
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Maximize,
+  Minimize,
+  Settings,
+  PictureInPicture2,
+  Loader2,
+} from "lucide-react"
+import type { Movie } from "@/contexts/MovieContext"
 
-export default function WatchPage() { const params = useParams() const id = params.id as string const videoRef = useRef<HTMLVideoElement>(null) const playerContainerRef = useRef<HTMLDivElement>(null)
+export default function WatchPage() {
+  const params = useParams()
+  const id = params.id as string
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const playerRef = useRef<HTMLDivElement>(null)
 
-const [movie, setMovie] = useState<Movie | null>(null) const [loading, setLoading] = useState(true) const [error, setError] = useState<string | null>(null) const [videoSrc, setVideoSrc] = useState<string>("") const [currentQuality, setCurrentQuality] = useState<"720p" | "1080p">("720p") const [isPlaying, setIsPlaying] = useState(false) const [isMuted, setIsMuted] = useState(false) const [volume, setVolume] = useState(1) const [currentTime, setCurrentTime] = useState(0) const [duration, setDuration] = useState(0) const [isFullScreen, setIsFullScreen] = useState(false) const [showSettings, setShowSettings] = useState(false) const [showPoster, setShowPoster] = useState(true) const [isBuffering, setIsBuffering] = useState(false)
+  const [movie, setMovie] = useState<Movie | null>(null)
+  const [videoSrc, setVideoSrc] = useState<string>("")
+  const [currentQuality, setCurrentQuality] = useState<"720p" | "1080p">("720p")
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [showControls, setShowControls] = useState(true)
+  const [showSettings, setShowSettings] = useState(false)
+  const [isMuted, setIsMuted] = useState(false)
+  const [volume, setVolume] = useState(1)
+  const [isBuffering, setIsBuffering] = useState(false)
+  const [duration, setDuration] = useState(0)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [isFullScreen, setIsFullScreen] = useState(false)
+  const [hasStarted, setHasStarted] = useState(false)
 
-useEffect(() => { const fetchMovie = async () => { try { const res = await fetch(https://web-production-6321.up.railway.app/movies/${id}) if (!res.ok) throw new Error("Movie not found") const data: Movie = await res.json() setMovie(data) setVideoSrc(data.video_link_720p) } catch (err) { setError("Failed to load movie") } finally { setLoading(false) } } if (id) fetchMovie() }, [id])
+  useEffect(() => {
+    const fetchMovie = async () => {
+      const res = await fetch(`https://web-production-6321.up.railway.app/movies/${id}`)
+      const data = await res.json()
+      setMovie(data)
+      setVideoSrc(data.video_link_720p)
+    }
 
-const handlePlay = async () => { if (!videoRef.current || !movie) return setVideoSrc(currentQuality === "1080p" ? movie.video_link_1080p : movie.video_link_720p) setShowPoster(false) setIsBuffering(true) setTimeout(async () => { try { await videoRef.current?.play() setIsPlaying(true) } catch (e) { console.error("Autoplay error:", e) } }, 100) }
+    if (id) fetchMovie()
+  }, [id])
 
-const togglePlayPause = () => { if (!videoRef.current) return if (videoRef.current.paused) { videoRef.current.play() setIsPlaying(true) } else { videoRef.current.pause() setIsPlaying(false) } }
+  useEffect(() => {
+    const handleFullScreenChange = () => {
+      setIsFullScreen(!!document.fullscreenElement)
+    }
+    document.addEventListener("fullscreenchange", handleFullScreenChange)
+    return () => document.removeEventListener("fullscreenchange", handleFullScreenChange)
+  }, [])
 
-const toggleMute = () => { if (!videoRef.current) return videoRef.current.muted = !isMuted setIsMuted(!isMuted) }
+  const formatTime = (time: number) => {
+    const m = Math.floor(time / 60).toString().padStart(2, "0")
+    const s = Math.floor(time % 60).toString().padStart(2, "0")
+    return `${m}:${s}`
+  }
 
-const handleVolume = (e: React.ChangeEvent<HTMLInputElement>) => { const v = parseFloat(e.target.value) if (videoRef.current) { videoRef.current.volume = v setVolume(v) setIsMuted(v === 0) } }
+  const handlePlayClick = () => {
+    setHasStarted(true)
+    setIsBuffering(true)
+    setTimeout(() => {
+      videoRef.current?.play()
+    }, 300)
+  }
 
-const toggleFullScreen = () => { if (!videoRef.current) return if (!document.fullscreenElement) { videoRef.current.requestFullscreen() setIsFullScreen(true) } else { document.exitFullscreen() setIsFullScreen(false) } }
+  const togglePlay = () => {
+    if (!videoRef.current) return
+    if (videoRef.current.paused) {
+      videoRef.current.play()
+      setIsPlaying(true)
+    } else {
+      videoRef.current.pause()
+      setIsPlaying(false)
+    }
+  }
 
-const formatTime = (t: number) => ${Math.floor(t / 60).toString().padStart(2, "0")}:${Math.floor(t % 60).toString().padStart(2, "0")}
+  const toggleMute = () => {
+    if (!videoRef.current) return
+    videoRef.current.muted = !isMuted
+    setIsMuted(!isMuted)
+  }
 
-const cleanTitle = (title: string) => { const match = title.match(/^(.*?)/) return match ? match[1] : title }
+  const handleVolume = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newVol = parseFloat(e.target.value)
+    if (videoRef.current) {
+      videoRef.current.volume = newVol
+      setVolume(newVol)
+      setIsMuted(newVol === 0)
+    }
+  }
 
-useEffect(() => { const handleClickOutside = (e: MouseEvent) => { if (playerContainerRef.current && !playerContainerRef.current.contains(e.target as Node)) { setShowSettings(false) } } document.addEventListener("click", handleClickOutside) return () => document.removeEventListener("click", handleClickOutside) }, [])
+  const toggleFullScreen = () => {
+    if (!playerRef.current) return
+    if (!document.fullscreenElement) {
+      playerRef.current.requestFullscreen()
+    } else {
+      document.exitFullscreen()
+    }
+  }
 
-useEffect(() => { const player = playerContainerRef.current if (!player) return
-
-let lastTap = 0
-const handleTap = () => {
-  const now = new Date().getTime()
-  const tapLength = now - lastTap
-  if (tapLength < 400 && tapLength > 0) {
+  const handleDoubleTap = () => {
     toggleFullScreen()
   }
-  lastTap = now
-}
 
-player.addEventListener("touchend", handleTap)
-return () => player.removeEventListener("touchend", handleTap)
+  const switchQuality = (q: "720p" | "1080p") => {
+    if (!movie || !videoRef.current) return
+    const currentTime = videoRef.current.currentTime
+    const wasPlaying = !videoRef.current.paused
+    const newSrc = q === "1080p" ? movie.video_link_1080p : movie.video_link_720p
+    setVideoSrc(newSrc)
+    setCurrentQuality(q)
+    setTimeout(() => {
+      if (videoRef.current) {
+        videoRef.current.currentTime = currentTime
+        if (wasPlaying) videoRef.current.play()
+      }
+    }, 100)
+  }
 
-}, [])
+  return (
+    <div className="bg-black text-white min-h-screen p-4 flex flex-col items-center">
+      <div className="w-full max-w-5xl mb-6">
+        <Link href={`/movie/${movie?.id || ""}`} className="flex items-center gap-2 text-blue-500">
+          <ArrowLeft className="h-5 w-5" />
+          <span>Back to Movie</span>
+        </Link>
+      </div>
 
-if (loading) return <div className="min-h-screen bg-black text-white flex items-center justify-center">Loading...</div> if (error || !movie) return <div className="min-h-screen bg-black text-white flex items-center justify-center">{error}</div>
+      <h1 className="text-2xl font-bold mb-4 text-center">
+        {movie?.title.split("(")[0].trim()} ({movie?.release_date?.split("-")[0]})
+      </h1>
 
-return ( <div className="min-h-screen bg-black text-white p-4"> <div className="max-w-6xl mx-auto"> <Link href={/movie/${movie.id}} className="text-blue-500 flex items-center mb-4"> <ArrowLeft className="mr-2" /> Back </Link> <h1 className="text-2xl md:text-3xl font-semibold mb-4">{cleanTitle(movie.title)}</h1>
-
-<div ref={playerContainerRef} className="relative bg-black aspect-video rounded-lg overflow-hidden">
-      <video
-        ref={videoRef}
-        className="w-full h-full"
-        src={!showPoster ? videoSrc : undefined}
-        muted={isMuted}
-        onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
-        onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
-        onPlaying={() => setIsBuffering(false)}
-        onWaiting={() => setIsBuffering(true)}
-        playsInline
-        controls={false}
-        poster={movie.thumbnail_url}
-      />
-
-      {showPoster && (
-        <button
-          onClick={handlePlay}
-          className="absolute inset-0 flex items-center justify-center bg-black/60 hover:bg-black/80 transition"
-        >
-          <Play className="w-16 h-16 text-white" />
-        </button>
-      )}
-
-      {isBuffering && (
-        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-20">
-          <Loader2 className="w-12 h-12 animate-spin text-blue-500" />
-        </div>
-      )}
-
-      {!showPoster && (
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
-          <input
-            type="range"
-            min={0}
-            max={duration}
-            value={currentTime}
-            onChange={(e) => {
-              const time = parseFloat(e.target.value)
-              if (videoRef.current) {
-                videoRef.current.currentTime = time
-                setCurrentTime(time)
-              }
-            }}
-            className="w-full"
-          />
-          <div className="flex justify-between text-xs text-gray-400 mt-1 mb-2">
-            <span>{formatTime(currentTime)}</span>
-            <span>{formatTime(duration)}</span>
+      <div
+        ref={playerRef}
+        className="relative w-full max-w-4xl aspect-video bg-black rounded overflow-hidden"
+        onDoubleClick={handleDoubleTap}
+      >
+        {!hasStarted ? (
+          <div
+            className="w-full h-full bg-cover bg-center flex items-center justify-center"
+            style={{ backgroundImage: `url(${movie?.thumbnail_url})` }}
+          >
+            <button
+              onClick={handlePlayClick}
+              className="bg-white text-black p-4 rounded-full text-xl hover:scale-110 transition"
+            >
+              <Play className="w-8 h-8" />
+            </button>
           </div>
-
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-3">
-              <button onClick={togglePlayPause}>
-                {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
-              </button>
-              <button onClick={toggleMute}>
-                {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
-              </button>
+        ) : (
+          <>
+            <video
+              ref={videoRef}
+              src={videoSrc}
+              autoPlay
+              muted={isMuted}
+              onPlay={() => {
+                setIsPlaying(true)
+                setIsBuffering(false)
+              }}
+              onPause={() => setIsPlaying(false)}
+              onWaiting={() => setIsBuffering(true)}
+              onPlaying={() => setIsBuffering(false)}
+              onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+              onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+              className="w-full h-full object-contain"
+              playsInline
+            />
+            {isBuffering && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-20">
+                <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
+              </div>
+            )}
+            <div
+              className="absolute bottom-0 left-0 right-0 bg-black/60 p-3 flex flex-col gap-2"
+              onClick={() => setShowSettings(false)}
+            >
               <input
                 type="range"
                 min={0}
-                max={1}
-                step={0.01}
-                value={volume}
-                onChange={handleVolume}
-                className="w-24"
-              />
-            </div>
-
-            <div className="flex items-center space-x-3 relative">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setShowSettings((prev) => !prev)
+                max={duration}
+                value={currentTime}
+                onChange={(e) => {
+                  if (videoRef.current) {
+                    videoRef.current.currentTime = parseFloat(e.target.value)
+                    setCurrentTime(parseFloat(e.target.value))
+                  }
                 }}
-              >
-                <Settings className="w-6 h-6" />
-              </button>
-              {document.pictureInPictureEnabled && (
-                <button onClick={() => videoRef.current?.requestPictureInPicture()}>
-                  <PictureInPicture2 className="w-6 h-6" />
-                </button>
-              )}
-              <button onClick={toggleFullScreen}>
-                {isFullScreen ? <Minimize className="w-6 h-6" /> : <Maximize className="w-6 h-6" />}
-              </button>
-
-              {showSettings && (
-                <div className="absolute bottom-full right-0 mb-2 bg-gray-800 rounded p-2 text-sm w-40 z-20">
-                  <p className="text-gray-300 font-semibold mb-1">Quality</p>
-                  {["720p", "1080p"].map((q) => (
-                    <button
-                      key={q}
-                      onClick={() => {
-                        setCurrentQuality(q as "720p" | "1080p")
-                        setVideoSrc(q === "720p" ? movie.video_link_720p : movie.video_link_1080p)
-                        setShowSettings(false)
-                        setTimeout(() => videoRef.current?.play(), 100)
-                      }}
-                      className={`block w-full px-2 py-1 rounded hover:bg-gray-700 ${
-                        currentQuality === q ? "bg-blue-600 text-white" : "text-gray-300"
-                      }`}
-                    >
-                      {q}
-                    </button>
-                  ))}
+              />
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex gap-3 items-center">
+                  <button onClick={togglePlay}>
+                    {isPlaying ? <Pause /> : <Play />}
+                  </button>
+                  <button onClick={toggleMute}>
+                    {isMuted || volume === 0 ? <VolumeX /> : <Volume2 />}
+                  </button>
+                  <input type="range" min={0} max={1} step={0.01} value={volume} onChange={handleVolume} />
+                  <span className="text-sm">{formatTime(currentTime)} / {formatTime(duration)}</span>
                 </div>
-              )}
+                <div className="flex gap-2 items-center relative">
+                  <button onClick={() => setShowSettings(!showSettings)}>
+                    <Settings />
+                  </button>
+                  {document.pictureInPictureEnabled && (
+                    <button onClick={() => videoRef.current?.requestPictureInPicture()}>
+                      <PictureInPicture2 />
+                    </button>
+                  )}
+                  <button onClick={toggleFullScreen}>
+                    {isFullScreen ? <Minimize /> : <Maximize />}
+                  </button>
+
+                  {showSettings && (
+                    <div className="absolute bottom-full right-0 mb-2 bg-gray-800 p-2 rounded shadow-lg text-sm z-50">
+                      <div className="mb-1 font-semibold text-white">Quality</div>
+                      {["720p", "1080p"].map((q) => (
+                        <button
+                          key={q}
+                          className={`block px-2 py-1 rounded hover:bg-gray-700 w-full text-left ${
+                            currentQuality === q ? "bg-blue-600 text-white" : "text-gray-300"
+                          }`}
+                          onClick={() => switchQuality(q as "720p" | "1080p")}
+                        >
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </div>
     </div>
-  </div>
-</div>
-
-) }
-
+  )
+}
